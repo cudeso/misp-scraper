@@ -1,0 +1,30 @@
+# General configuration
+misp_scraper_log = "/var/log/misp/scraper.log"                  # Log file for the scraper
+app_name = "MISP-Scraper"                                       # Used in the Flask server
+manual_feed = "Manual"                                 
+manual_feedsource = "Manual"
+flask_secret_key = "MyZsuePerSecret1984key"                     # Flask secret key. Change this to something random
+flask_address = "127.0.0.1"                                     # IP address for the Flask server
+flask_port = 5200                                       
+flask_certificate_file = "/etc/ssl/private/misp.local.crt"      # Point to a certificate file (fe. the one from MISP)
+flask_certificate_keyfile = "/etc/ssl/private/misp.local.key"   # Point to a certificate key file (fe. the one from MISP)
+logging_level = "error"
+feedlist = "/home/ubuntu/misp-scraper/feedlist.json"            # Location of the RSS feedlist
+
+# MISP configuration
+misp_key = ""                                                   # MISP API key
+misp_url = ""                                                   # MISP url
+misp_verifycert = False
+misp_distribution = 2                                           # Connected communities
+misp_threat_level_id = 2                                        # Medium
+misp_analysis_level = 2                                         # Completed
+misp_scraper_event = "Scraper"                                  # Prefix of the MISP event
+misp_retentiontime = "99d"                                      # Set this to >days than URLs are typically stored in the feed
+misp_scraper_tags = ["misp:tool=\"misp-scraper\"", "osint:source-type=\"blog-post\"", "misp:event-type=\"collection\""]
+
+
+# Redis configuration
+redis_host = "localhost"
+redis_port = 6379
+redis_channel = "urls"
+redis_scraper_redis_sleep = 2

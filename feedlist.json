@@ -1,0 +1,20 @@
+{
+	"feeds": [
+		{
+			"title": "Proofpoint",
+			"url": "https://www.proofpoint.com/us/threat-insight-blog.xml"
+		},
+		{
+			"title": "Red Canary",
+			"url": "https://www.redcanary.co/feed/"
+		},
+		{
+			"title": "vanimpe.eu",
+			"url": "https://www.vanimpe.eu/feed/rss/"
+		},
+		{
+			"title": "Threatpost",
+			"url": "http://threatpost.com/feed"
+		}
+	]
+}

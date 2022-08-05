@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ app_title }}</title>
+    <style>
+        nav a {
+            color: #eb970e;
+            font-size: 18px;
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0 24px;
+            text-decoration: none;
+        }
+        .alert {
+            padding: 5px;
+            margin: 5px;
+            color: #970020;
+            background-color: #ffd5de;
+        }
+        .info {
+            padding: 5px;
+            margin: 5px;
+            color: #ffffff;
+            background-color: #01d042;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="#">{{ app_title }}</a>
+        <a href="{{ misp_url }}" target="_blank">Go to MISP</a>        
+    </nav>
+    <hr>
+    <div class="content">
+        <p>Add a page title and URL to submit to MISP Scraper</p>
+        {% with messages = get_flashed_messages(with_categories=True) %}
+            {% for category, message in messages %}
+            <div class="{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+        <form method="post" action="/" >
+            <table>
+                <tr>
+                    <td>Feed title</td>
+                    <td><input type="text" name="feed" placeholder="{{manual_feed}}" value="{{manual_feed}}" readonly disabled></input></td>
+                </tr>
+                <tr>
+                    <td>Feed URL</td>
+                    <td><input type="text" name="feedsource" placeholder="{{manual_feedsource}}" value="{{manual_feedsource}}" readonly disabled></input></td>
+                </tr>                
+                <tr>
+                    <td>Page title</td>
+                    <td><input type="text" name="title" placeholder="Leaf blank to use the HTML title" value="" size="100"></input></td>
+                </tr>
+                <tr>
+                    <td>Page URL (link)</td>
+                    <td><input type="text" name="link" placeholder="URL to scrape" value="" size="100"></input></td>
+                </tr>                
+            </table>
+            <br />
+            <button type="submit">Submit</button>
+        </form>
+    </div>
+</body>
+</html>

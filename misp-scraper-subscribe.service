@@ -1,0 +1,14 @@
+[Unit]
+Description=Start MISP Scraper Subscribe to Redis queue service
+After=misp-workers.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/misp-scraper/
+Environment=PATH=/home/ubuntu/misp-scraper/scraper/bin
+ExecStart=/home/ubuntu/misp-scraper/scraper/bin/python /home/ubuntu/misp-scraper/misp-scraper.py subscribe
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
