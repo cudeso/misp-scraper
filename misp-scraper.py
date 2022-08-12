@@ -144,21 +144,25 @@ class MispScraperRedis():
                 
                 if not link.startswith(("http://", "https://")):
                     link = "https://{}".format(link)
-                if not title:
-                    f = MispScraperFeedparser()
-                    title = f.get_page_title(link)
 
-                if link:
-                    # Avoid adding the event twice
-                    misp_title = "{}: {}".format(self.config.misp_scraper_event, title)
-                    misp_tag = "scraper:{}".format(feed_title)
-                    res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
-                    if len(res) == 0:
-                        self.misp_scraper_event.create_event(feed_title, feed, title, link, additional_attributes)
-                        time.sleep(self.scraper_redis_sleep)
-                    else:
-                        logging.debug("Skipping creation of MISP event {}, already there.".format(misp_title))
+                try:
+                    if not title:
+                        f = MispScraperFeedparser()
+                        title = f.get_page_title(link)
 
+                    if link:
+                        # Avoid adding the event twice
+                        misp_title = "{}: {}".format(self.config.misp_scraper_event, title)
+                        misp_tag = "scraper:{}".format(feed_title)
+                        res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
+                        if len(res) == 0:
+                            self.misp_scraper_event.create_event(feed_title, feed, title, link, additional_attributes)
+                            time.sleep(self.scraper_redis_sleep)
+                        else:
+                            logging.debug("Skipping creation of MISP event {}, already there.".format(misp_title))
+                except:
+                        logging.error("Unable to parse link {}".format(link))
+                        
 
 class MispScraperEvent():
     def __init__(self) -> None:
