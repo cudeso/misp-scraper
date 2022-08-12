@@ -1,5 +1,23 @@
-# misp-scraper
+# MISP Scraper
 A web scraper to create MISP events and reports
+
+More details on the [MISP project website](https://www.misp-project.org/2022/08/08/MISP-scraper.html/).
+
+# Install
+
+```
+git clone https://github.com/cudeso/misp-scraper
+cd misp-scraper
+virtualenv scraper
+source scraper/bin/active
+pip install -r requirements
+cp scraper.py.default scraper.py
+```
+
+Then install and enable the service scripts (change the path /home/ubuntu to your MISP user).
+Run the cron job.
+
+# Screenshots
 
 ![misp-scraper-Components.drawio.png](assets/misp-scraper-Components.drawio.png)
 
