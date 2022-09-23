@@ -3,14 +3,17 @@ A web scraper to create MISP events and reports
 
 More details on the [MISP project website](https://www.misp-project.org/2022/08/08/MISP-scraper.html/).
 
+# Prerequisites
+[MISP modules installed and enabled](https://github.com/MISP/misp-modules#how-to-install-and-start-misp-modules-in-a-python-virtualenv-recommended).
+
 # Install
 
 ```
 git clone https://github.com/cudeso/misp-scraper
 cd misp-scraper
 virtualenv scraper
-source scraper/bin/active
-pip install -r requirements
+source scraper/bin/activate
+pip install -r requirements.txt
 cp scraper.py.default scraper.py
 ```
 
