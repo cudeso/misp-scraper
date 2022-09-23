@@ -32,7 +32,7 @@
     </nav>
     <hr>
     <div class="content">
-        <p>Add a page title and URL to submit to MISP Scraper</p>
+        <p>Add either a page title and URL or raw HTML to submit to MISP Scraper</p>
         {% with messages = get_flashed_messages(with_categories=True) %}
             {% for category, message in messages %}
             <div class="{{ category }}">{{ message }}</div>
@@ -47,14 +47,20 @@
                 <tr>
                     <td>Feed URL</td>
                     <td><input type="text" name="feedsource" placeholder="{{manual_feedsource}}" value="{{manual_feedsource}}" readonly disabled></input></td>
-                </tr>                
+                </tr>
+                <tr><td colspan="2"><br /></td></tr>                
                 <tr>
                     <td>Page title</td>
                     <td><input type="text" name="title" placeholder="Leaf blank to use the HTML title" value="" size="100"></input></td>
                 </tr>
+                <tr><td colspan="2"><br /></td></tr>                
                 <tr>
-                    <td>Page URL (link)</td>
+                    <td>Page URL (link) <br /><i>(not scraped when raw HTML is submitted)</i></td>
                     <td><input type="text" name="link" placeholder="URL to scrape" value="" size="100"></input></td>
+                </tr>
+                <tr>
+                    <td valign="top">Raw HTML <br /><i>(ignored when empty, then Page URL is scraped)</i></td>
+                    <td><textarea  name="rawhtml" cols="100" rows="10"></textarea></td>
                 </tr>                
             </table>
             <br />

@@ -6,11 +6,13 @@ import json
 import logging
 import redis
 import sys
-from pymisp import ExpandedPyMISP, MISPObject, MISPEvent, MISPAttribute, MISPTag
+from pymisp import ExpandedPyMISP, MISPObject, MISPEvent, MISPAttribute, MISPTag, MISPEventReport
 import urllib3
 from urllib import parse
 import requests
 from bs4 import BeautifulSoup
+from markdownify import markdownify
+import html
 import time
 from flask import Flask, render_template, request, url_for, flash, redirect
 import sys
@@ -97,10 +99,13 @@ class MispScraperFeedparser():
         """ Debug function to load a set of URLS"""
         self.url_list = urls
 
-    def get_page_title(self, url) -> str:
+    def get_page_title(self, url, rawhtml = False) -> str:
         page_title = ""
-        reqs = requests.get(url)
-        soup = BeautifulSoup(reqs.text, 'html.parser')
+        
+        if not rawhtml:
+            reqs = requests.get(url)
+            rawhtml = reqs.text
+        soup = BeautifulSoup(rawhtml, 'html.parser')
         for title in soup.find_all('title'):
             page_title = "{} {}".format(page_title, title.get_text())
         return page_title.strip()
@@ -140,23 +145,29 @@ class MispScraperRedis():
                 feed = data["feed"]
                 feed_title = data["feed_title"]
                 title = data["title"]
+                rawhtml = data["rawhtml"]
                 additional_attributes = data.get("additional_attributes",[])
-                
+
                 if not link.startswith(("http://", "https://")):
                     link = "https://{}".format(link)
 
                 try:
                     if not title:
                         f = MispScraperFeedparser()
-                        title = f.get_page_title(link)
+                        if rawhtml:
+                            title = f.get_page_title(False, rawhtml)
+                            if not title or len(title) < 1:
+                                title = "Raw HTML"
+                        else:
+                            title = f.get_page_title(link)
 
                     if link:
                         # Avoid adding the event twice
                         misp_title = "{}: {}".format(self.config.misp_scraper_event, title)
-                        misp_tag = "scraper:{}".format(feed_title)
+                        misp_tag = "ZZZscraper:{}".format(feed_title)
                         res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
                         if len(res) == 0:
-                            self.misp_scraper_event.create_event(feed_title, feed, title, link, additional_attributes)
+                            self.misp_scraper_event.create_event(feed_title, feed, title, link, rawhtml, additional_attributes)
                             time.sleep(self.scraper_redis_sleep)
                         else:
                             logging.debug("Skipping creation of MISP event {}, already there.".format(misp_title))
@@ -175,6 +186,8 @@ class MispScraperEvent():
         self.misp_analysis_level = config.misp_analysis_level
         self.misp_scraper_event = config.misp_scraper_event
         self.misp_scraper_tags = config.misp_scraper_tags
+        self.rawhtml_distribution = config.rawhtml_distribution
+        self.rawhtml_sharing_group_id = config.rawhtml_sharing_group_id
 
         self.misp_headers = {
             "Authorization": self.misp_key,
@@ -199,9 +212,41 @@ class MispScraperEvent():
             return False
         return True
 
-    def _add_misp_report(self, event, link) -> bool:
+    def _convert_raw_html(self, rawhtml) -> str:
+        """ Strip non-relevant data from a raw HTML blob  """
+        if rawhtml:
+            soup = BeautifulSoup(rawhtml, 'html.parser')
+
+            toRemove = ['script', 'head', 'header', 'footer', 'meta', 'link' 'nav', 'style']
+            toStrip = ['a', 'img']
+
+            for tag in soup.find_all(toRemove):
+                tag.decompose()
+            return markdownify(str(soup), heading_style='ATX', strip=toStrip)
+        else:
+            return False
+
+    def _add_misp_report(self, event, link, rawhtml = False) -> bool:
         """ Add a MISP report to a MISP event """
-        if link:
+        if rawhtml:
+            html_report = MISPEventReport()
+            html_report.name = "Report from raw HTML {}".format(link)
+            html_report.content = self._convert_raw_html(rawhtml)        
+            report = self.misp.add_event_report(str(event.id),html_report)
+            if 'EventReport' in report and 'id' in report['EventReport']:
+                report_id = report['EventReport']['id']
+                logging.debug("Raw HTML added as report")
+
+                event_url = "{}/eventReports/extractAllFromReport/{}.json".format(self.misp_url, report_id)
+                data = "data[EventReport][tag_event]=1&data[EventReport][id]={}".format(report_id)
+                res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
+                logging.debug("Scraped and extracted {}".format(link))
+                return True
+            else:
+                logging.error("Unable to add report to event from raw HTML")
+                return False
+
+        elif link:
             event_url = "{}/eventReports/importReportFromUrl/{}.json".format(self.misp_url, str(event.id))
             data = "data[EventReport][url]={}".format(parse.quote_plus(link))
             res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
@@ -222,7 +267,7 @@ class MispScraperEvent():
                     return True
             return False
 
-    def create_event(self, feed, feedsource, title, link, additional_attributes=[]) -> bool:
+    def create_event(self, feed, feedsource, title, link, rawhtml = False, additional_attributes=[]) -> bool:
         """ Create a MISP event """
         if link:
             event = MISPEvent()
@@ -248,7 +293,7 @@ class MispScraperEvent():
                 if len(additional_attributes) > 0:
                     for attr in additional_attributes:
                         self._add_attribute(event, attr["category"], attr["type"], attr["value"], attr["comment"])
-                self._add_misp_report(event, link)
+                self._add_misp_report(event, link, rawhtml)
 
                 return event
             except:
@@ -317,6 +362,8 @@ class MispScraperConfig():
         self.flask_certificate_keyfile = flask_certificate_keyfile
         self.logging_level = logging_level
         self.feedlist = feedlist
+        self.rawhtml_distribution = rawhtml_distribution
+        self.rawhtml_sharing_group_id = rawhtml_sharing_group_id
 
 
 ###############################################
@@ -345,9 +392,10 @@ def index():
     if request.method == 'POST':
         title = request.form['title']
         link = request.form['link']
+        rawhtml = request.form['rawhtml']
 
         try:
-            if not link:
+            if not rawhtml and not link:
                 flash("A link is required!", "alert")
             else:
                 additional_attributes = [{'category': 'Other', 'type': 'comment', 'comment': 'Remote IP', 'value': '{}'.format(request.remote_addr)}]
@@ -357,6 +405,7 @@ def index():
                         "title": title,
                         "feed_title": feed_title,
                         "feed": feed,
+                        "rawhtml": rawhtml,
                         "additional_attributes": additional_attributes
                             })
                     flash("Manual submit to queue {} {}".format(title, link), "info")
