@@ -21,7 +21,7 @@ from scraper import *
 
 class MispScraperFeedparser():
     def __init__(self) -> None:
-        config = MispScraperConfig()
+        tfig = MispScraperConfig()
         self.config = config
 
         self.feed_list: dict
@@ -164,7 +164,7 @@ class MispScraperRedis():
                     if link:
                         # Avoid adding the event twice
                         misp_title = "{}: {}".format(self.config.misp_scraper_event, title)
-                        misp_tag = "ZZZscraper:{}".format(feed_title)
+                        misp_tag = "scraper:{}".format(feed_title)
                         res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
                         if len(res) == 0:
                             self.misp_scraper_event.create_event(feed_title, feed, title, link, rawhtml, additional_attributes)
