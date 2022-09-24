@@ -5,3 +5,4 @@ pymisp==2.4.159
 redis==4.3.4
 requests==2.28.1
 urllib3==1.26.11
+markdownify==0.11.6
