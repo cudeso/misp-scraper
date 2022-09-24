@@ -6,7 +6,7 @@ import json
 import logging
 import redis
 import sys
-from pymisp import ExpandedPyMISP, MISPObject, MISPEvent, MISPAttribute, MISPTag, MISPEventReport
+from pymisp import ExpandedPyMISP, MISPObject, MISPEvent, MISPAttribute, MISPTag, MISPEventReport, MISPWarninglist
 import urllib3
 from urllib import parse
 import requests
@@ -188,6 +188,8 @@ class MispScraperEvent():
         self.misp_scraper_tags = config.misp_scraper_tags
         self.rawhtml_distribution = config.rawhtml_distribution
         self.rawhtml_sharing_group_id = config.rawhtml_sharing_group_id
+        self.misp_warninglist = config.misp_warninglist
+        self.misp_hard_delete_on_cleanup = config.misp_hard_delete_on_cleanup
 
         self.misp_headers = {
             "Authorization": self.misp_key,
@@ -267,6 +269,27 @@ class MispScraperEvent():
                     return True
             return False
 
+    def cleanup_event(self, event) -> bool:
+        """ Remove unwanted attributes from an event"""
+        if event and self.misp_warninglist > 0:
+            try:
+                cleanup_values = self.misp.get_warninglist(self.misp_warninglist, pythonify = True)
+                for el in cleanup_values.WarninglistEntry:
+                    value = el["value"]
+                    to_cleanup = self.misp.search('attributes', value=value, eventid=event.id)
+                    if "Attribute" in to_cleanup and len(to_cleanup["Attribute"]) > 0:
+                        for attribute in to_cleanup["Attribute"]:
+                            attribute_id = attribute["id"]
+                            self.misp.delete_attribute(attribute_id, hard=self.misp_hard_delete_on_cleanup)
+                            logging.info("Clean up attribute {} - {}".format(attribute_id, value))
+                return True
+                
+            except:
+                logging.error("Failed to parse warninglist for cleanup of attributes {}".format(self.misp_warninglist))
+                return False
+        else:
+            return False
+
     def create_event(self, feed, feedsource, title, link, rawhtml = False, additional_attributes=[]) -> bool:
         """ Create a MISP event """
         if link:
@@ -289,11 +312,16 @@ class MispScraperEvent():
                 self._add_attribute(event, "Other", "comment", "Blog title", title)
                 self._add_attribute(event, "External analysis", "link", "Feed URL", feedsource, True)
                 self._add_attribute(event, "External analysis", "link", "Blog URL", link)
+                
+                if rawhtml:
+                    self._add_attribute(event, "Other", "comment", "Raw HTML", "Submit via raw HTML")
 
                 if len(additional_attributes) > 0:
                     for attr in additional_attributes:
                         self._add_attribute(event, attr["category"], attr["type"], attr["value"], attr["comment"])
                 self._add_misp_report(event, link, rawhtml)
+
+                self.cleanup_event(event)
 
                 return event
             except:
@@ -364,6 +392,8 @@ class MispScraperConfig():
         self.feedlist = feedlist
         self.rawhtml_distribution = rawhtml_distribution
         self.rawhtml_sharing_group_id = rawhtml_sharing_group_id
+        self.misp_warninglist = misp_warninglist
+        self.misp_hard_delete_on_cleanup = misp_hard_delete_on_cleanup
 
 
 ###############################################
