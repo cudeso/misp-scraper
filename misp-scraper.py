@@ -145,7 +145,7 @@ class MispScraperRedis():
                 feed = data["feed"]
                 feed_title = data["feed_title"]
                 title = data["title"]
-                rawhtml = data["rawhtml"]
+                rawhtml = data.get("rawhtml", False) 
                 additional_attributes = data.get("additional_attributes",[])
 
                 if not link.startswith(("http://", "https://")):
