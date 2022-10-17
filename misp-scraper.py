@@ -190,6 +190,8 @@ class MispScraperEvent():
         self.rawhtml_sharing_group_id = config.rawhtml_sharing_group_id
         self.misp_warninglist = config.misp_warninglist
         self.misp_hard_delete_on_cleanup = config.misp_hard_delete_on_cleanup
+        self.manual_feedsource = config.manual_feedsource
+        self.misp_retentiontime = config.misp_retentiontime
 
         self.misp_headers = {
             "Authorization": self.misp_key,
@@ -306,11 +308,15 @@ class MispScraperEvent():
                 for tag in self.misp_scraper_tags:
                     self.misp.tag(event.uuid, tag)
 
+                self.misp.tag(event.uuid, "retention:{}".format(self.misp_retentiontime), True)
                 self.misp.tag(event.uuid, "workflow:state=\"incomplete\"", local=True)
                 self.misp.tag(event.uuid, "scraper:{}".format(feed))
 
                 self._add_attribute(event, "Other", "comment", "Blog title", title)
-                self._add_attribute(event, "External analysis", "link", "Feed URL", feedsource, True)
+                if feedsource != self.manual_feedsource:
+                    self._add_attribute(event, "External analysis", "link", "Feed URL", feedsource, True)
+                else:
+                    self._add_attribute(event, "Other", "comment", "Feed URL", feedsource)
                 self._add_attribute(event, "External analysis", "link", "Blog URL", link)
                 
                 if rawhtml:
