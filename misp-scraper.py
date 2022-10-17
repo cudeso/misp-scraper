@@ -49,6 +49,18 @@ class MispScraperFeedparser():
                                 logging.debug("Found URL {} {} {}".format(rss_feed, title, link))
                                 urls.append({"feed_title": rss_feed_title, "feed": rss_feed, "title": title, "link": link, "published": published})
                 else:
+                    # The RSS feed has malformed XML; still try to extract some URLs
+                    if len(rss_feed_content) > 0:
+                        for entry in rss_feed_content.entries:
+                            title = entry.get('title', 'No title')
+                            link = entry.get('link', False)
+                            published = entry.get('published', False)
+                            if link:
+                                if not published:
+                                    published = "1970-01-01T00:00:00 +0000"
+                                logging.debug("Found URL - despite malformed XML- {} {} {}".format(rss_feed, title, link))
+                                urls.append({"feed_title": rss_feed_title, "feed": rss_feed, "title": title, "link": link, "published": published})
+                                
                     bozo_exception = rss_feed_content.get('bozo_exception', '')
                     logging.error("Error when parsing RSS data for {} {}".format(rss_feed, bozo_exception))
             except:
