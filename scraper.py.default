@@ -24,6 +24,9 @@ misp_scraper_event = "Scraper"                                  # Prefix of the 
 misp_retentiontime = "99d"                                      # Set this to >days than URLs are typically stored in the feed
 misp_scraper_tags = ["misp:tool=\"misp-scraper\"", "osint:source-type=\"blog-post\"", "misp:event-type=\"collection\"", "tlp:white"]
 misp_warninglist = 0
+misp_warninglist_required_strings = 0
+autodelete_when_no_required_strings = False
+autodelete_when_assumed_errors = False
 misp_hard_delete_on_cleanup = False
 
 # Redis configuration

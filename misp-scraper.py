@@ -14,10 +14,12 @@ from bs4 import BeautifulSoup
 from markdownify import markdownify
 import html
 import time
+import re
 from flask import Flask, render_template, request, url_for, flash, redirect
 import sys
 sys.path.insert(0, "/home/ubuntu/misp-scraper/")
 from scraper import *
+
 
 class MispScraperFeedparser():
     def __init__(self) -> None:
@@ -60,7 +62,7 @@ class MispScraperFeedparser():
                                     published = "1970-01-01T00:00:00 +0000"
                                 logging.debug("Found URL - despite malformed XML- {} {} {}".format(rss_feed, title, link))
                                 urls.append({"feed_title": rss_feed_title, "feed": rss_feed, "title": title, "link": link, "published": published})
-                                
+
                     bozo_exception = rss_feed_content.get('bozo_exception', '')
                     logging.error("Error when parsing RSS data for {} {}".format(rss_feed, bozo_exception))
             except:
@@ -111,9 +113,9 @@ class MispScraperFeedparser():
         """ Debug function to load a set of URLS"""
         self.url_list = urls
 
-    def get_page_title(self, url, rawhtml = False) -> str:
+    def get_page_title(self, url, rawhtml=False) -> str:
         page_title = ""
-        
+
         if not rawhtml:
             reqs = requests.get(url)
             rawhtml = reqs.text
@@ -153,12 +155,12 @@ class MispScraperRedis():
             if message["type"] == "message":
                 data = message["data"]
                 data = json.loads(data)
-                link = data["link"]
+                link = data["link"].strip()
                 feed = data["feed"]
                 feed_title = data["feed_title"]
                 title = data["title"]
-                rawhtml = data.get("rawhtml", False) 
-                additional_attributes = data.get("additional_attributes",[])
+                rawhtml = data.get("rawhtml", False)
+                additional_attributes = data.get("additional_attributes", [])
 
                 if not link.startswith(("http://", "https://")):
                     link = "https://{}".format(link)
@@ -184,8 +186,8 @@ class MispScraperRedis():
                         else:
                             logging.debug("Skipping creation of MISP event {}, already there.".format(misp_title))
                 except:
-                        logging.error("Unable to parse link {}".format(link))
-                        
+                    logging.error("Unable to parse link {}".format(link))
+
 
 class MispScraperEvent():
     def __init__(self) -> None:
@@ -201,9 +203,12 @@ class MispScraperEvent():
         self.rawhtml_distribution = config.rawhtml_distribution
         self.rawhtml_sharing_group_id = config.rawhtml_sharing_group_id
         self.misp_warninglist = config.misp_warninglist
+        self.misp_warninglist_required_strings = config.misp_warninglist_required_strings
+        self.autodelete_when_no_required_strings = config.autodelete_when_no_required_strings
         self.misp_hard_delete_on_cleanup = config.misp_hard_delete_on_cleanup
         self.manual_feedsource = config.manual_feedsource
         self.misp_retentiontime = config.misp_retentiontime
+        self.autodelete_when_assumed_errors = config.autodelete_when_assumed_errors
 
         self.misp_headers = {
             "Authorization": self.misp_key,
@@ -211,7 +216,7 @@ class MispScraperEvent():
             "Accept": "application/json",
             "X-Requested-With": "XMLHttpRequest"
         }
-        
+
         self.misp = ExpandedPyMISP(self.misp_url, self.misp_key, self.misp_verifycert)
 
     def _add_attribute(self, event, category, type, comment, value, correlate=False) -> bool:
@@ -242,17 +247,25 @@ class MispScraperEvent():
         else:
             return False
 
-    def _add_misp_report(self, event, link, rawhtml = False) -> bool:
+    def _add_misp_report(self, event, link, rawhtml=False) -> bool:
         """ Add a MISP report to a MISP event """
         if rawhtml:
             html_report = MISPEventReport()
             html_report.name = "Report from raw HTML {}".format(link)
-            html_report.content = self._convert_raw_html(rawhtml)        
-            report = self.misp.add_event_report(str(event.id),html_report)
+            html_report.content = self._convert_raw_html(rawhtml)
+            report = self.misp.add_event_report(str(event.id), html_report)
             if 'EventReport' in report and 'id' in report['EventReport']:
                 report_id = report['EventReport']['id']
                 logging.debug("Raw HTML added as report")
 
+                # Before we extra elements, check for required strings
+                required_string_match = self._verify_required_strings(event)
+                if self.autodelete_when_no_required_strings and not required_string_match:
+                    self.misp.delete_event(event.id)
+                    logging.debug("Delete event because no required string matches found")
+                    return False                
+
+                # Extract elements
                 event_url = "{}/eventReports/extractAllFromReport/{}.json".format(self.misp_url, report_id)
                 data = "data[EventReport][tag_event]=1&data[EventReport][id]={}".format(report_id)
                 res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
@@ -269,13 +282,29 @@ class MispScraperEvent():
             # We don't get the HTTP errors when creating the report; doing some assumptions
             if "EventReport" not in res.json():
                 logging.error("No content returned for {}".format(link))
-                self.misp.tag(event.uuid, "misp-scraper:HTTP=404")
+                if self.autodelete_when_assumed_errors:
+                    self.misp.delete_event(event.uuid)
+                    logging.debug("Deleting event for {}".format(link))
+                else:
+                    self.misp.tag(event.uuid, "misp-scraper:HTTP=404")
             elif "403 Forbidden" in res.json()["EventReport"]["content"]:  # Happens for Red Canary
                 logging.error("Got a 403 Forbidden for {}".format(link))
-                self.misp.tag(event.uuid, "misp-scraper:HTTP=403")
+                if self.autodelete_when_assumed_errors:
+                    self.misp.delete_event(event.uuid)
+                    logging.debug("Deleting event for {}".format(link))
+                else:
+                    self.misp.tag(event.uuid, "misp-scraper:HTTP=403")
             else:
                 report_id = int(res.json()["EventReport"]["id"])
                 if report_id > 0:
+                    # Before we extra elements, check for required strings
+                    required_string_match = self._verify_required_strings(event)
+                    if self.autodelete_when_no_required_strings and not required_string_match:
+                        self.misp.delete_event(event.id)
+                        logging.debug("Delete event because no required string matches found")
+                        return False
+
+                    # Extract elements
                     event_url = "{}/eventReports/extractAllFromReport/{}.json".format(self.misp_url, report_id)
                     data = "data[EventReport][tag_event]=1&data[EventReport][id]={}".format(report_id)
                     res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
@@ -283,11 +312,42 @@ class MispScraperEvent():
                     return True
             return False
 
+    def _verify_required_strings(self, event) -> bool:
+        """ Verify if there are strings (or substrings) present in the scraped site """
+        if event and self.misp_warninglist_required_strings > 0:
+            try:
+                alert_values = self.misp.get_warninglist(self.misp_warninglist_required_strings, pythonify=True)
+                first_event_report = int(self.misp.get_event_reports(event.id)[0]['EventReport']['id'])
+                match = False
+
+                if first_event_report > 0:
+                    event_report_content = self.misp.get_event_report(first_event_report)['EventReport']['content']
+                    if len(event_report_content) > 0:
+                        for el in alert_values.WarninglistEntry:
+                            value = el["value"]
+                            if re.search(r"\b{}\b".format(value), event_report_content, re.I):
+                                self.misp.tag(event.uuid, "scraper:matchstring={}".format(value))
+                                logging.debug("Event report matches string {}".format(value))
+                                match = True
+
+                            elif re.search(r"{}".format(value), event_report_content, re.I):
+                                self.misp.tag(event.uuid, "scraper:matchsubstring={}".format(value))
+                                logging.debug("Event report matches substring {}".format(value))
+                                match = True
+
+                return match
+
+            except:
+                logging.error("Failed to parse warninglist for required strings {}".format(self.misp_warninglist_required_strings))
+                return False
+        else:
+            return False
+
     def cleanup_event(self, event) -> bool:
         """ Remove unwanted attributes from an event"""
         if event and self.misp_warninglist > 0:
             try:
-                cleanup_values = self.misp.get_warninglist(self.misp_warninglist, pythonify = True)
+                cleanup_values = self.misp.get_warninglist(self.misp_warninglist, pythonify=True)
                 for el in cleanup_values.WarninglistEntry:
                     value = el["value"]
                     to_cleanup = self.misp.search('attributes', value=value, eventid=event.id)
@@ -296,15 +356,15 @@ class MispScraperEvent():
                             attribute_id = attribute["id"]
                             self.misp.delete_attribute(attribute_id, hard=self.misp_hard_delete_on_cleanup)
                             logging.info("Clean up attribute {} - {}".format(attribute_id, value))
-                return True
-                
+                        return True
+
             except:
                 logging.error("Failed to parse warninglist for cleanup of attributes {}".format(self.misp_warninglist))
                 return False
         else:
             return False
 
-    def create_event(self, feed, feedsource, title, link, rawhtml = False, additional_attributes=[]) -> bool:
+    def create_event(self, feed, feedsource, title, link, rawhtml=False, additional_attributes=[]) -> bool:
         """ Create a MISP event """
         if link:
             event = MISPEvent()
@@ -330,7 +390,7 @@ class MispScraperEvent():
                 else:
                     self._add_attribute(event, "Other", "comment", "Feed URL", feedsource)
                 self._add_attribute(event, "External analysis", "link", "Blog URL", link)
-                
+
                 if rawhtml:
                     self._add_attribute(event, "Other", "comment", "Raw HTML", "Submit via raw HTML")
 
@@ -411,7 +471,10 @@ class MispScraperConfig():
         self.rawhtml_distribution = rawhtml_distribution
         self.rawhtml_sharing_group_id = rawhtml_sharing_group_id
         self.misp_warninglist = misp_warninglist
+        self.misp_warninglist_required_strings = misp_warninglist_required_strings
+        self.autodelete_when_no_required_strings = autodelete_when_no_required_strings
         self.misp_hard_delete_on_cleanup = misp_hard_delete_on_cleanup
+        self.autodelete_when_assumed_errors = autodelete_when_assumed_errors
 
 
 ###############################################
@@ -430,6 +493,7 @@ urllib3.disable_warnings()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.flask_secret_key
 
+
 @app.route('/', methods=['POST', 'GET'])
 def index():
     feed_title = config.manual_feed
@@ -447,8 +511,8 @@ def index():
                 flash("A link is required!", "alert")
             else:
                 additional_attributes = [{'category': 'Other', 'type': 'comment', 'comment': 'Remote IP', 'value': '{}'.format(request.remote_addr)}]
-                try: 
-                    redis.publish( {
+                try:
+                    redis.publish({
                         "link": link,
                         "title": title,
                         "feed_title": feed_title,
@@ -484,4 +548,4 @@ if __name__ == "__main__":
             r.subscribe()
     elif sys.argv[1] == "flask":
         logging.info("")
-        app.run(host=config.flask_address, port=config.flask_port, debug=True, ssl_context=(config.flask_certificate_file , config.flask_certificate_keyfile))
+        app.run(host=config.flask_address, port=config.flask_port, debug=True, ssl_context=(config.flask_certificate_file, config.flask_certificate_keyfile))
