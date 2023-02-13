@@ -7,6 +7,8 @@ More details on the [MISP project website](https://www.misp-project.org/2022/08/
 
 [MISP modules installed and enabled](https://github.com/MISP/misp-modules#how-to-install-and-start-misp-modules-in-a-python-virtualenv-recommended).
 
+Make sure that you enable `Plugin.Enrichment_html_to_markdown_enabled` (under Administration, Server settings & maintenance, Plugin). This module is used to fetch the HTML from an external URL. This module also adds the button 'Import from URL' in the MISP Event Reports section.
+
 # Install
 
 ```
