@@ -23,6 +23,10 @@ cp scraper.py.default scraper.py
 Then install and enable the service scripts (change the path /home/ubuntu to your MISP user).
 Run the cron job.
 
+# Run without a service script and without Flask
+
+In one terminal, start the **subscriber** with `/var/www/MISP/misp-custom/scripts/misp-scraper/scraper/bin/python /var/www/MISP/misp-custom/scripts/misp-scraper/misp-scraper.py subscribe`. Do this as the Apache user (`www-data`). Then start a second shell and run the **cron** with `/var/www/MISP/misp-custom/scripts/misp-scraper/scraper/bin/python /var/www/MISP/misp-custom/scripts/misp-scraper/misp-scraper.py cron`.
+
 # Submit raw HTML
 
 Instead of scraping a site you can also submit the raw HTML via the Flask web form. The scraper will then strip the HTML and convert it to MarkDown. It is then added as a MISP report, after which the attributes and context elements are extracted. For existing setups, install `markdownify` in the venv.
