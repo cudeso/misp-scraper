@@ -17,7 +17,7 @@ import time
 import re
 from flask import Flask, render_template, request, url_for, flash, redirect
 import sys
-sys.path.insert(0, "/home/ubuntu/misp-scraper/")
+sys.path.insert(0, "/var/www/MISP/misp-custom/scripts/misp-scraper")
 from scraper import *
 
 
@@ -32,7 +32,7 @@ class MispScraperFeedparser():
         self.feed_list = []
         self.url_list = []
 
-    def _get_urls_feed(self, rss_feed, rss_feed_title) -> dict:
+    def _get_urls_feed(self, rss_feed, rss_feed_title, rss_feed_tags) -> dict:
         """ Get all the URLs contained in a feed"""
         urls = []
         if rss_feed:
@@ -49,7 +49,7 @@ class MispScraperFeedparser():
                                 if not published:
                                     published = "1970-01-01T00:00:00 +0000"
                                 logging.debug("Found URL {} {} {}".format(rss_feed, title, link))
-                                urls.append({"feed_title": rss_feed_title, "feed": rss_feed, "title": title, "link": link, "published": published})
+                                urls.append({"feed_title": rss_feed_title, "feed": rss_feed, "title": title, "link": link, "published": published, "feed_tags": rss_feed_tags})
                 else:
                     # The RSS feed has malformed XML; still try to extract some URLs
                     if len(rss_feed_content) > 0:
@@ -61,12 +61,12 @@ class MispScraperFeedparser():
                                 if not published:
                                     published = "1970-01-01T00:00:00 +0000"
                                 logging.debug("Found URL - despite malformed XML- {} {} {}".format(rss_feed, title, link))
-                                urls.append({"feed_title": rss_feed_title, "feed": rss_feed, "title": title, "link": link, "published": published})
+                                urls.append({"feed_title": rss_feed_title, "feed": rss_feed, "title": title, "link": link, "published": published, "feed_tags": rss_feed_tags})
 
                     bozo_exception = rss_feed_content.get('bozo_exception', '')
                     logging.error("Error when parsing RSS data for {} {}".format(rss_feed, bozo_exception))
-            except:
-                logging.error("Error when accessing RSS feed {}".format(rss_feed))
+            except Exception as e:
+                logging.error("Error when accessing RSS feed {} {}".format(rss_feed, e))
         return urls
 
     def _get_rss(self) -> dict:
@@ -75,7 +75,7 @@ class MispScraperFeedparser():
         if len(self.feed_list) > 0:
             for feed in self.feed_list:
                 logging.debug("Parse feed {}".format(feed))
-                r = self._get_urls_feed(feed["url"], feed["title"])
+                r = self._get_urls_feed(feed["url"], feed["title"], feed["tags"])
                 feeds = feeds + r
         return feeds
 
@@ -130,10 +130,11 @@ class MispScraperRedis():
         config = MispScraperConfig()
         self.config = config
 
-        self.redis = redis.Redis(host=config.redis_host, port=config.redis_port, decode_responses=True)
+        self.redis = redis.Redis(host=config.redis_host, port=config.redis_port, password=config.redis_password, decode_responses=True)
         self.misp_scraper_event = MispScraperEvent()
         self.channel = config.redis_channel
         self.scraper_redis_sleep = config.redis_scraper_redis_sleep
+        self.misp_scraper_tags_prefix = config.misp_scraper_tags_prefix
 
     def publish(self, message) -> bool:
         """ Publish to Redis"""
@@ -141,8 +142,8 @@ class MispScraperRedis():
             if message:
                 logging.debug("Publish redis {}".format(message["link"]))
                 self.redis.publish(self.channel, json.dumps(message))
-        except:
-            logging.error("Unable to publish message {}".format(json.dumps(message)))
+        except Exception as e:
+            logging.error("Unable to publish message {} {}".format(json.dumps(message), e))
 
     def subscribe(self) -> bool:
         """ Subscribe to the Redis messages and create MISP events for incoming messages"""
@@ -158,6 +159,7 @@ class MispScraperRedis():
                 link = data["link"].strip()
                 feed = data["feed"]
                 feed_title = data["feed_title"]
+                feed_tags = data["feed_tags"]
                 title = data["title"]
                 rawhtml = data.get("rawhtml", False)
                 additional_attributes = data.get("additional_attributes", [])
@@ -178,15 +180,15 @@ class MispScraperRedis():
                     if link:
                         # Avoid adding the event twice
                         misp_title = "{}: {}".format(self.config.misp_scraper_event, title)
-                        misp_tag = "scraper:{}".format(feed_title)
+                        misp_tag = "{}:data-collections-source:{}".format(misp_scraper_tags_prefix, feed_title)
                         res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
                         if len(res) == 0:
-                            self.misp_scraper_event.create_event(feed_title, feed, title, link, rawhtml, additional_attributes)
+                            self.misp_scraper_event.create_event(feed_title, feed, title, link, feed_tags, rawhtml, additional_attributes)
                             time.sleep(self.scraper_redis_sleep)
                         else:
                             logging.debug("Skipping creation of MISP event {}, already there.".format(misp_title))
-                except:
-                    logging.error("Unable to parse link {}".format(link))
+                except Exception as e:
+                    logging.error("Unable to parse link {} {}".format(link, e))
 
 
 class MispScraperEvent():
@@ -200,6 +202,8 @@ class MispScraperEvent():
         self.misp_analysis_level = config.misp_analysis_level
         self.misp_scraper_event = config.misp_scraper_event
         self.misp_scraper_tags = config.misp_scraper_tags
+        self.misp_scraper_tags_local = config.misp_scraper_tags_local
+        self.misp_scraper_tags_prefix = config.misp_scraper_tags_prefix
         self.rawhtml_distribution = config.rawhtml_distribution
         self.rawhtml_sharing_group_id = config.rawhtml_sharing_group_id
         self.misp_warninglist = config.misp_warninglist
@@ -209,6 +213,7 @@ class MispScraperEvent():
         self.manual_feedsource = config.manual_feedsource
         self.misp_retentiontime = config.misp_retentiontime
         self.autodelete_when_assumed_errors = config.autodelete_when_assumed_errors
+        self.attach_pdf = config.attach_pdf
 
         self.misp_headers = {
             "Authorization": self.misp_key,
@@ -247,7 +252,7 @@ class MispScraperEvent():
         else:
             return False
 
-    def _add_misp_report(self, event, link, rawhtml=False) -> bool:
+    def _add_misp_report(self, event, link, extract_elements, rawhtml=False) -> bool:
         """ Add a MISP report to a MISP event """
         if rawhtml:
             html_report = MISPEventReport()
@@ -265,11 +270,13 @@ class MispScraperEvent():
                     logging.debug("Delete event because no required string matches found")
                     return False                
 
-                # Extract elements
-                event_url = "{}/eventReports/extractAllFromReport/{}.json".format(self.misp_url, report_id)
-                data = "data[EventReport][tag_event]=1&data[EventReport][id]={}".format(report_id)
-                res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
-                logging.debug("Scraped and extracted {}".format(link))
+                if extract_elements:
+                    # Extract elements
+                    event_url = "{}/eventReports/extractAllFromReport/{}.json".format(self.misp_url, report_id)
+                    data = "data[EventReport][tag_event]=1&data[EventReport][id]={}".format(report_id)
+                    res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
+                    logging.debug("Scraped and extracted {}".format(link))
+
                 return True
             else:
                 logging.error("Unable to add report to event from raw HTML")
@@ -304,11 +311,13 @@ class MispScraperEvent():
                         logging.debug("Delete event because no required string matches found")
                         return False
 
-                    # Extract elements
-                    event_url = "{}/eventReports/extractAllFromReport/{}.json".format(self.misp_url, report_id)
-                    data = "data[EventReport][tag_event]=1&data[EventReport][id]={}".format(report_id)
-                    res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
-                    logging.debug("Scraped and extracted {}".format(link))
+                    if extract_elements:
+                        # Extract elements
+                        event_url = "{}/eventReports/extractAllFromReport/{}.json".format(self.misp_url, report_id)
+                        data = "data[EventReport][tag_event]=1&data[EventReport][id]={}".format(report_id)
+                        res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
+                        logging.debug("Scraped and extracted {}".format(link))
+
                     return True
             return False
 
@@ -337,8 +346,8 @@ class MispScraperEvent():
 
                 return match
 
-            except:
-                logging.error("Failed to parse warninglist for required strings {}".format(self.misp_warninglist_required_strings))
+            except Exception as e:
+                logging.error("Failed to parse warninglist for required strings {} {}".format(self.misp_warninglist_required_strings, e))
                 return False
         else:
             return False
@@ -358,13 +367,13 @@ class MispScraperEvent():
                             logging.info("Clean up attribute {} - {}".format(attribute_id, value))
                         return True
 
-            except:
-                logging.error("Failed to parse warninglist for cleanup of attributes {}".format(self.misp_warninglist))
+            except Exception as e:
+                logging.error("Failed to parse warninglist for cleanup of attributes {} {}".format(self.misp_warninglist, e))
                 return False
         else:
             return False
 
-    def create_event(self, feed, feedsource, title, link, rawhtml=False, additional_attributes=[]) -> bool:
+    def create_event(self, feed, feedsource, title, link, feed_tags, rawhtml=False, additional_attributes=[]) -> bool:
         """ Create a MISP event """
         if link:
             event = MISPEvent()
@@ -380,9 +389,16 @@ class MispScraperEvent():
                 for tag in self.misp_scraper_tags:
                     self.misp.tag(event.uuid, tag)
 
-                self.misp.tag(event.uuid, "retention:{}".format(self.misp_retentiontime), True)
-                self.misp.tag(event.uuid, "workflow:state=\"incomplete\"", local=True)
-                self.misp.tag(event.uuid, "scraper:{}".format(feed))
+                for tag in self.misp_scraper_tags_local:
+                    self.misp.tag(event.uuid, tag, local=True)
+                    
+                for tag in feed_tags:
+                    self.misp.tag(event.uuid, tag, local=True)
+                    
+                data_source = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed)
+                self.misp.tag(event.uuid, data_source, local=True)
+                self.misp.tag(event.uuid, "retention:{}".format(self.misp_retentiontime), local=True)
+                #self.misp.tag(event.uuid, "misp-scraper:{}".format(feed), local=True)
 
                 self._add_attribute(event, "Other", "comment", "Blog title", title)
                 if feedsource != self.manual_feedsource:
@@ -397,13 +413,16 @@ class MispScraperEvent():
                 if len(additional_attributes) > 0:
                     for attr in additional_attributes:
                         self._add_attribute(event, attr["category"], attr["type"], attr["value"], attr["comment"])
-                self._add_misp_report(event, link, rawhtml)
+                self._add_misp_report(event, link, extract_elements, rawhtml)
 
+                if self.attach_pdf:
+                    logging.info("Attach PDF not yet implemented")
+                    
                 self.cleanup_event(event)
 
                 return event
-            except:
-                logging.error("Failed in trying to create a MISP event {}".format(title))
+            except Exception as e:
+                logging.error("Failed in trying to create a MISP event {} {}".format(title, e))
                 return False
         else:
             logging.error("Failed in trying to create a MISP event without a link {}".format(title))
@@ -455,6 +474,7 @@ class MispScraperConfig():
         self.misp_scraper_tags = misp_scraper_tags
         self.redis_host = redis_host
         self.redis_port = redis_port
+        self.redis_password = redis_password
         self.redis_channel = redis_channel
         self.redis_scraper_redis_sleep = redis_scraper_redis_sleep
         self.misp_scraper_log = misp_scraper_log
@@ -475,7 +495,10 @@ class MispScraperConfig():
         self.autodelete_when_no_required_strings = autodelete_when_no_required_strings
         self.misp_hard_delete_on_cleanup = misp_hard_delete_on_cleanup
         self.autodelete_when_assumed_errors = autodelete_when_assumed_errors
-
+        self.extract_elements = extract_elements
+        self.misp_scraper_tags_local = misp_scraper_tags_local
+        self.misp_scraper_tags_prefix = misp_scraper_tags_prefix
+        self.attach_pdf = attach_pdf
 
 ###############################################
 config = MispScraperConfig()
@@ -522,14 +545,14 @@ def index():
                             })
                     flash("Manual submit to queue {} {}".format(title, link), "info")
                     logging.info("Manual submit to queue {} {}".format(title, link))
-                except:
+                except Exception as e:
                     flash("Failed to submit to queue {} {}".format(title, link), "alert")
-                    logging.error("Failed to submit to queue {} {}".format(title, link))
+                    logging.error("Failed to submit to queue {} {} {}".format(title, link, e))
 
             return redirect(url_for("index"))
-        except:
+        except Exception as e:
             flash("Error when processing POST request from {}".format(request.remote_addr), "alert")
-            logging.error("Error when processing POST request from {}".format(request.remote_addr))
+            logging.error("Error when processing POST request from {} {}".format(request.remote_addr, e))
 
     return render_template('add-url.html', app_title=config.app_name, misp_url=config.misp_url, manual_feed=feed_title, manual_feedsource=feed)
 
