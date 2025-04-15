@@ -2,18 +2,22 @@
 	"feeds": [
 		{
 			"title": "Proofpoint",
+			"tags": ["admiralty-scale:source-reliability=\"b\""],
 			"url": "https://www.proofpoint.com/us/threat-insight-blog.xml"
 		},
 		{
 			"title": "Red Canary",
+			"tags": ["admiralty-scale:source-reliability=\"b\""],
 			"url": "https://www.redcanary.co/feed/"
 		},
 		{
 			"title": "vanimpe.eu",
+			"tags": ["admiralty-scale:source-reliability=\"b\""],
 			"url": "https://www.vanimpe.eu/feed/rss/"
 		},
 		{
 			"title": "Threatpost",
+			"tags": ["admiralty-scale:source-reliability=\"b\""],
 			"url": "http://threatpost.com/feed"
 		}
 	]
