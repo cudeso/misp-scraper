@@ -1,5 +1,5 @@
 # General configuration
-misp_scraper_log = "/var/log/misp/scraper.log"                  # Log file for the scraper
+misp_scraper_log = "/var/www/MISP/app/tmp/logs/scraper.log"     # Log file for the scraper
 app_name = "MISP-Scraper"                                       # Used in the Flask server
 manual_feed = "Manual"                                 
 manual_feedsource = "Manual"
@@ -9,9 +9,10 @@ flask_port = 5200
 flask_certificate_file = "/etc/ssl/private/misp.local.crt"      # Point to a certificate file (fe. the one from MISP)
 flask_certificate_keyfile = "/etc/ssl/private/misp.local.key"   # Point to a certificate key file (fe. the one from MISP)
 logging_level = "error"
-feedlist = "/home/ubuntu/misp-scraper/feedlist.json"            # Location of the RSS feedlist
+feedlist = "/var/www/MISP/misp-custom/scripts/misp-scraper/feedlist.json"            # Location of the RSS feedlist
 rawhtml_distribution = 4
 rawhtml_sharing_group_id = 4
+attach_pdf=True
 
 # MISP configuration
 misp_key = ""                                                   # MISP API key
@@ -22,7 +23,8 @@ misp_threat_level_id = 2                                        # Medium
 misp_analysis_level = 2                                         # Completed
 misp_scraper_event = "Scraper"                                  # Prefix of the MISP event
 misp_retentiontime = "99d"                                      # Set this to >days than URLs are typically stored in the feed
-misp_scraper_tags = ["misp:tool=\"misp-scraper\"", "osint:source-type=\"blog-post\"", "misp:event-type=\"collection\"", "tlp:white"]
+misp_scraper_tags = ["tlp:clear"]
+misp_scraper_tags_local = ["nviso-cti:source=\"misp-scraper\"", "workflow:state=\"incomplete\""]
 misp_warninglist = 0
 misp_warninglist_required_strings = 0
 autodelete_when_no_required_strings = False
@@ -30,7 +32,8 @@ autodelete_when_assumed_errors = False
 misp_hard_delete_on_cleanup = False
 
 # Redis configuration
-redis_host = "localhost"
+redis_host = "redis"
+redis_password = "redispassword"
 redis_port = 6379
 redis_channel = "urls"
 redis_scraper_redis_sleep = 2
