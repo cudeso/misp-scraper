@@ -6,7 +6,8 @@ import json
 import logging
 import redis
 import sys
-from pymisp import ExpandedPyMISP, MISPObject, MISPEvent, MISPAttribute, MISPTag, MISPEventReport, MISPWarninglist
+#from pymisp import ExpandedPyMISP, MISPObject, MISPEvent, MISPAttribute, MISPTag, MISPEventReport, MISPWarninglist
+from pymisp import *
 import urllib3
 from urllib import parse
 import requests
@@ -179,8 +180,8 @@ class MispScraperRedis():
 
                     if link:
                         # Avoid adding the event twice
-                        misp_title = "{}: {}".format(self.config.misp_scraper_event, title)
-                        misp_tag = "{}:data-collections-source:{}".format(misp_scraper_tags_prefix, feed_title)
+                        misp_title = "{}: {}".format(self.config.misp_scraper_event, title).strip()
+                        misp_tag = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed_title)
                         res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
                         if len(res) == 0:
                             self.misp_scraper_event.create_event(feed_title, feed, title, link, feed_tags, rawhtml, additional_attributes)
@@ -222,7 +223,8 @@ class MispScraperEvent():
             "X-Requested-With": "XMLHttpRequest"
         }
 
-        self.misp = ExpandedPyMISP(self.misp_url, self.misp_key, self.misp_verifycert)
+        self.misp = PyMISP(self.misp_url, self.misp_key, self.misp_verifycert)
+        #self.misp = ExpandedPyMISP(self.misp_url, self.misp_key, self.misp_verifycert)
 
     def _add_attribute(self, event, category, type, comment, value, correlate=False) -> bool:
         """ Add an attribute to a MISP event """
@@ -268,7 +270,7 @@ class MispScraperEvent():
                 if self.autodelete_when_no_required_strings and not required_string_match:
                     self.misp.delete_event(event.id)
                     logging.debug("Delete event because no required string matches found")
-                    return False                
+                    return False
 
                 if extract_elements:
                     # Extract elements
@@ -391,10 +393,10 @@ class MispScraperEvent():
 
                 for tag in self.misp_scraper_tags_local:
                     self.misp.tag(event.uuid, tag, local=True)
-                    
+
                 for tag in feed_tags:
                     self.misp.tag(event.uuid, tag, local=True)
-                    
+
                 data_source = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed)
                 self.misp.tag(event.uuid, data_source, local=True)
                 self.misp.tag(event.uuid, "retention:{}".format(self.misp_retentiontime), local=True)
@@ -417,7 +419,7 @@ class MispScraperEvent():
 
                 if self.attach_pdf:
                     logging.info("Attach PDF not yet implemented")
-                    
+
                 self.cleanup_event(event)
 
                 return event
