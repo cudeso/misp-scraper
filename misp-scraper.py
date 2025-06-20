@@ -19,6 +19,7 @@ import re
 from flask import Flask, render_template, request, url_for, flash, redirect
 import sys
 sys.path.insert(0, "/var/www/MISP/misp-custom/scripts/misp-scraper")
+from urllib.parse import urlparse
 from scraper import *
 
 
@@ -215,6 +216,7 @@ class MispScraperEvent():
         self.misp_retentiontime = config.misp_retentiontime
         self.autodelete_when_assumed_errors = config.autodelete_when_assumed_errors
         self.attach_pdf = config.attach_pdf
+        self.add_source_website_as_tag = add_source_website_as_tag
 
         self.misp_headers = {
             "Authorization": self.misp_key,
@@ -375,7 +377,7 @@ class MispScraperEvent():
         else:
             return False
 
-    def _extract_primary_data_source(link):
+    def _extract_primary_data_source(self, link):
         parsed_url = urlparse(link)
         hostname = parsed_url.hostname
     
@@ -384,9 +386,12 @@ class MispScraperEvent():
             if ip_pattern.match(hostname):
                 primary_data_source = "direct-ip"
             else:
-                tld = hostname.split('.')[-1]
-                primary_data_source = f"{hostname}.{tld})"
-        except:
+                # Split the hostname into parts and keep the last two segments
+                parts = hostname.split('.')
+                if len(parts) > 2:
+                    hostname = '.'.join(parts[-2:])
+                primary_data_source = hostname
+        except Exception as e:
             primary_data_source = False
             
         return primary_data_source
@@ -416,7 +421,7 @@ class MispScraperEvent():
                 data_source = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed)                
                 self.misp.tag(event.uuid, data_source, local=True)
                 
-                if self.config.add_source_website_as_tag:
+                if self.add_source_website_as_tag:
                     primary_data_source = self._extract_primary_data_source(link)
                     if primary_data_source:
                         primary_data_source_tag = "{}:primary-data-collection-source:{}".format(misp_scraper_tags_prefix, primary_data_source)
