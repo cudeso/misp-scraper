@@ -270,7 +270,7 @@ class MispScraperEvent():
                 if self.autodelete_when_no_required_strings and not required_string_match:
                     self.misp.delete_event(event.id)
                     logging.debug("Delete event because no required string matches found")
-                    return False
+                    return False                
 
                 if extract_elements:
                     # Extract elements
@@ -393,13 +393,14 @@ class MispScraperEvent():
 
                 for tag in self.misp_scraper_tags_local:
                     self.misp.tag(event.uuid, tag, local=True)
-
+                    
                 for tag in feed_tags:
                     self.misp.tag(event.uuid, tag, local=True)
-
+                    
                 data_source = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed)
                 self.misp.tag(event.uuid, data_source, local=True)
-                self.misp.tag(event.uuid, "retention:{}".format(self.misp_retentiontime), local=True)
+                if self.misp_retentiontime:
+                    self.misp.tag(event.uuid, "retention:{}".format(self.misp_retentiontime), local=True)
                 #self.misp.tag(event.uuid, "misp-scraper:{}".format(feed), local=True)
 
                 self._add_attribute(event, "Other", "comment", "Blog title", title)
@@ -419,7 +420,7 @@ class MispScraperEvent():
 
                 if self.attach_pdf:
                     logging.info("Attach PDF not yet implemented")
-
+                    
                 self.cleanup_event(event)
 
                 return event
@@ -437,6 +438,7 @@ class MispScraperCron():
         self.redis = MispScraperRedis()
         config = MispScraperConfig()
         self.config = config
+        self.misp_retentiontime = config.misp_retentiontime
 
     def refresh_feed_data(self) -> None:
         """ Update the list of links found in RSS """
@@ -451,15 +453,18 @@ class MispScraperCron():
 
     def cleanup_events(self) -> None:
         """ Cleanup old events (passed retention date and workflow not complete"""
-        misp = MispScraperEvent().misp
-        events = misp.search(controller="events", tags=["workflow:state=\"incomplete\""], timestamp=["3650d", "{}".format(self.config.misp_retentiontime)])
-
-        if len(events) > 0:
-            for event in events:
-                misp.delete_event(event["Event"]["id"])
-                logging.info("Delete outdated event {} - {}".format(event["Event"]["id"], event["Event"]["info"]))
+        if self.misp_retentiontime:
+            misp = MispScraperEvent().misp
+            events = misp.search(controller="events", tags=["workflow:state=\"incomplete\""], timestamp=["3650d", "{}".format(self.misp_retentiontime)])
+    
+            if len(events) > 0:
+                for event in events:
+                    misp.delete_event(event["Event"]["id"])
+                    logging.info("Delete outdated event {} - {}".format(event["Event"]["id"], event["Event"]["info"]))
+            else:
+                logging.debug("No outdated events found during cron")
         else:
-            logging.debug("No outdated events found during cron")
+            logging.debug("No retention time specified, not cleaning up events")
 
 
 class MispScraperConfig():
