@@ -385,7 +385,7 @@ class MispScraperEvent():
                 primary_data_source = "direct-ip"
             else:
                 tld = hostname.split('.')[-1]
-                primary_data_source = f"{hostname} (TLD: {tld})"
+                primary_data_source = f"{hostname}.{tld})"
         except:
             primary_data_source = False
             
