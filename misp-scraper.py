@@ -375,6 +375,22 @@ class MispScraperEvent():
         else:
             return False
 
+    def _extract_primary_data_source(link):
+        parsed_url = urlparse(link)
+        hostname = parsed_url.hostname
+    
+        try:
+            ip_pattern = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+            if ip_pattern.match(hostname):
+                primary_data_source = "direct-ip"
+            else:
+                tld = hostname.split('.')[-1]
+                primary_data_source = f"{hostname} (TLD: {tld})"
+        except:
+            primary_data_source = False
+            
+        return primary_data_source
+    
     def create_event(self, feed, feedsource, title, link, feed_tags, rawhtml=False, additional_attributes=[]) -> bool:
         """ Create a MISP event """
         if link:
@@ -397,8 +413,15 @@ class MispScraperEvent():
                 for tag in feed_tags:
                     self.misp.tag(event.uuid, tag, local=True)
                     
-                data_source = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed)
+                data_source = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed)                
                 self.misp.tag(event.uuid, data_source, local=True)
+                
+                if self.config.add_source_website_as_tag:
+                    primary_data_source = self._extract_primary_data_source(link)
+                    if primary_data_source:
+                        primary_data_source_tag = "{}:primary-data-collection-source:{}".format(misp_scraper_tags_prefix, primary_data_source)
+                        self.misp.tag(event.uuid, primary_data_source_tag, local=True)
+                        
                 if self.misp_retentiontime:
                     self.misp.tag(event.uuid, "retention:{}".format(self.misp_retentiontime), local=True)
                 #self.misp.tag(event.uuid, "misp-scraper:{}".format(feed), local=True)
