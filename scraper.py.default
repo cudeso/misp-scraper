@@ -31,6 +31,8 @@ autodelete_when_no_required_strings = False
 autodelete_when_assumed_errors = False
 misp_hard_delete_on_cleanup = False
 add_source_website_as_tag = True
+extract_elements = False
+misp_scraper_tags_prefix = "scraper"
 
 # Redis configuration
 redis_host = "redis"
