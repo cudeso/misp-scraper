@@ -6,7 +6,6 @@ import json
 import logging
 import redis
 import sys
-#from pymisp import ExpandedPyMISP, MISPObject, MISPEvent, MISPAttribute, MISPTag, MISPEventReport, MISPWarninglist
 from pymisp import *
 import urllib3
 from urllib import parse
@@ -521,6 +520,7 @@ class MispScraperConfig():
         self.flask_port = flask_port
         self.flask_certificate_file = flask_certificate_file
         self.flask_certificate_keyfile = flask_certificate_keyfile
+        self.flask_url = flask_url
         self.logging_level = logging_level
         self.feedlist = feedlist
         self.rawhtml_distribution = rawhtml_distribution
@@ -576,6 +576,7 @@ def index():
                         "feed_title": feed_title,
                         "feed": feed,
                         "rawhtml": rawhtml,
+                        "feed_tags": "",
                         "additional_attributes": additional_attributes
                             })
                     flash("Manual submit to queue {} {}".format(title, link), "info")
@@ -606,4 +607,8 @@ if __name__ == "__main__":
             r.subscribe()
     elif sys.argv[1] == "flask":
         logging.info("")
-        app.run(host=config.flask_address, port=config.flask_port, debug=True, ssl_context=(config.flask_certificate_file, config.flask_certificate_keyfile))
+        if config.flask_certificate_file and  config.flask_certificate_keyfile:
+            app.run(host=config.flask_address, port=config.flask_port, debug=True, ssl_context=(config.flask_certificate_file, config.flask_certificate_keyfile))
+        else:
+            app.run(host=config.flask_address, port=config.flask_port, debug=True)
+
