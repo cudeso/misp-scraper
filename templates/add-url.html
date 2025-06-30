@@ -38,7 +38,7 @@
             <div class="{{ category }}">{{ message }}</div>
             {% endfor %}
         {% endwith %}
-        <form method="post" action="/" >
+       <form method="post" action="{{ flask_url }}" >
             <table>
                 <tr>
                     <td>Feed title</td>
