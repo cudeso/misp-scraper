@@ -9,6 +9,8 @@ More details on the [MISP project website](https://www.misp-project.org/2022/08/
 
 Make sure that you enable `Plugin.Enrichment_html_to_markdown_enabled` (under Administration, Server settings & maintenance, Plugin). This module is used to fetch the HTML from an external URL. This module also adds the button 'Import from URL' in the MISP Event Reports section.
 
+Also ensure you have set `Security.eventreport_enable_arbitrary_urls` to 1 via the CLI (`sudo -u www-data ../app/Console/cake Admin setSetting "Security.eventreport_enable_arbitrary_urls" 1`).
+
 # Install
 
 ```
