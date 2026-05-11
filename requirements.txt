@@ -1,4 +1,5 @@
 setuptools
+curl_cffi
 feedparser
 redis
 pymisp

@@ -1,22 +1,20 @@
-from distutils.log import debug
 import feedparser
 import logging
 import os
 import json
-import logging
 import redis
 import sys
 from pymisp import *
 import urllib3
 from urllib import parse
 import requests
+from curl_cffi import requests as cf_requests
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 import html
 import time
 import re
 from flask import Flask, render_template, request, url_for, flash, redirect
-import sys
 sys.path.insert(0, "/var/www/MISP/misp-custom/scripts/misp-scraper")
 from urllib.parse import urlparse
 from scraper import *
@@ -24,7 +22,7 @@ from scraper import *
 
 class MispScraperFeedparser():
     def __init__(self) -> None:
-        tfig = MispScraperConfig()
+        config = MispScraperConfig()
         self.config = config
 
         self.feed_list: dict
@@ -114,12 +112,24 @@ class MispScraperFeedparser():
         """ Debug function to load a set of URLS"""
         self.url_list = urls
 
+    def fetch_rawhtml(self, url) -> str:
+        """Fetch URL content with browser impersonation for Cloudflare-protected pages."""
+        if not url:
+            return False
+        try:
+            response = cf_requests.get(url, impersonate="chrome124")
+            return response.text
+        except Exception as e:
+            logging.error("Unable to fetch raw HTML for {} {}".format(url, e))
+            return False
+
     def get_page_title(self, url, rawhtml=False) -> str:
         page_title = ""
 
         if not rawhtml:
-            reqs = requests.get(url)
-            rawhtml = reqs.text
+            rawhtml = self.fetch_rawhtml(url)
+            if not rawhtml:
+                return page_title
         soup = BeautifulSoup(rawhtml, 'html.parser')
         for title in soup.find_all('title'):
             page_title = "{} {}".format(page_title, title.get_text())
@@ -257,6 +267,13 @@ class MispScraperEvent():
 
     def _add_misp_report(self, event, link, extract_elements, rawhtml=False) -> bool:
         """ Add a MISP report to a MISP event """
+        if not rawhtml and link:
+            try:
+                response = cf_requests.get(link, impersonate="chrome124")
+                rawhtml = response.text
+            except Exception as e:
+                logging.error("Unable to pre-fetch raw HTML for {} {}".format(link, e))
+
         if rawhtml:
             html_report = MISPEventReport()
             html_report.name = "Report from raw HTML {}".format(link)
@@ -337,12 +354,15 @@ class MispScraperEvent():
                     if len(event_report_content) > 0:
                         for el in alert_values.WarninglistEntry:
                             value = el["value"]
-                            if re.search(r"\b{}\b".format(value), event_report_content, re.I):
+                            if not value:
+                                continue
+                            escaped_value = re.escape(value)
+                            if re.search(r"\b{}\b".format(escaped_value), event_report_content, re.I):
                                 self.misp.tag(event.uuid, "scraper:matchstring={}".format(value))
                                 logging.debug("Event report matches string {}".format(value))
                                 match = True
 
-                            elif re.search(r"{}".format(value), event_report_content, re.I):
+                            elif re.search(r"{}".format(escaped_value), event_report_content, re.I):
                                 self.misp.tag(event.uuid, "scraper:matchsubstring={}".format(value))
                                 logging.debug("Event report matches substring {}".format(value))
                                 match = True
@@ -360,6 +380,7 @@ class MispScraperEvent():
         if event and self.misp_warninglist > 0:
             try:
                 cleanup_values = self.misp.get_warninglist(self.misp_warninglist, pythonify=True)
+                cleaned_any = False
                 for el in cleanup_values.WarninglistEntry:
                     value = el["value"]
                     to_cleanup = self.misp.search('attributes', value=value, eventid=event.id)
@@ -368,7 +389,8 @@ class MispScraperEvent():
                             attribute_id = attribute["id"]
                             self.misp.delete_attribute(attribute_id, hard=self.misp_hard_delete_on_cleanup)
                             logging.info("Clean up attribute {} - {}".format(attribute_id, value))
-                        return True
+                            cleaned_any = True
+                return cleaned_any
 
             except Exception as e:
                 logging.error("Failed to parse warninglist for cleanup of attributes {} {}".format(self.misp_warninglist, e))
@@ -476,6 +498,9 @@ class MispScraperCron():
     def push_to_redis(self) -> None:
         """ Push the links to Redis"""
         for el in self.feedparser.get_urls():
+            rawhtml = self.feedparser.fetch_rawhtml(el.get("link", False))
+            if rawhtml:
+                el["rawhtml"] = rawhtml
             self.redis.publish(el)
 
     def cleanup_events(self) -> None:
