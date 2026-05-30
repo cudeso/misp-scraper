@@ -190,7 +190,7 @@ class MispScraperRedis():
 
                     if link:
                         # Avoid adding the event twice
-                        misp_title = "{}: {}".format(self.config.misp_scraper_event, title).strip()
+                        misp_title = "{}{}".format(self.config.misp_scraper_event, title).strip()
                         misp_tag = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed_title)
                         res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
                         if len(res) == 0:
@@ -424,7 +424,7 @@ class MispScraperEvent():
             event.distribution = self.misp_distribution
             event.threat_level_id = self.misp_threat_level_id
             event.analysis = self.misp_analysis_level
-            event.info = "{}: {}".format(self.misp_scraper_event, title)
+            event.info = "{}{}".format(self.misp_scraper_event, title)
 
             try:
                 event = self.misp.add_event(event, pythonify=True)
