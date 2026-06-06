@@ -35,8 +35,23 @@ class MispScraperFeedparser():
         """ Get all the URLs contained in a feed"""
         urls = []
         if rss_feed:
+            started = time.monotonic()
             try:
-                rss_feed_content = feedparser.parse(rss_feed)
+                parsed_feed_url = urlparse(rss_feed)
+                if parsed_feed_url.scheme in ["http", "https"]:
+                        # Try curl_cffi first. Fall back to plain requests.
+                        try:
+                            response = cf_requests.get(rss_feed, impersonate="chrome124", timeout=30)
+                            response.raise_for_status()
+                            rss_feed_content = feedparser.parse(response.content)
+                        except Exception as curl_err:
+                            logging.warning("curl_cffi failed for {}, retrying with requests: {}".format(rss_feed, curl_err))
+                            _headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0"}
+                            response = requests.get(rss_feed, timeout=30, headers=_headers)
+                            response.raise_for_status()
+                            rss_feed_content = feedparser.parse(response.content)
+                else:
+                    rss_feed_content = feedparser.parse(rss_feed)
                 if not rss_feed_content.bozo:
                     if len(rss_feed_content) > 0:
                         feed_entries = len(rss_feed_content)
@@ -64,6 +79,11 @@ class MispScraperFeedparser():
 
                     bozo_exception = rss_feed_content.get('bozo_exception', '')
                     logging.error("Error when parsing RSS data for {} {}".format(rss_feed, bozo_exception))
+                logging.info("Fetched RSS feed {} in {:.2f}s with {} URL(s)".format(rss_feed, time.monotonic() - started, len(urls)))
+            except requests.exceptions.Timeout:
+                logging.error("Timeout when accessing RSS feed {}".format(rss_feed))
+            except requests.exceptions.RequestException as e:
+                logging.error("HTTP error when accessing RSS feed {} {}".format(rss_feed, e))
             except Exception as e:
                 logging.error("Error when accessing RSS feed {} {}".format(rss_feed, e))
         return urls
@@ -72,7 +92,9 @@ class MispScraperFeedparser():
         """ Internal function. Loads the RSS data per feed. """
         feeds = []
         if len(self.feed_list) > 0:
-            for feed in self.feed_list:
+            total = len(self.feed_list)
+            for index, feed in enumerate(self.feed_list, start=1):
+                logging.info("Processing feed {}/{}: {}".format(index, total, feed.get("url", "unknown")))
                 logging.debug("Parse feed {}".format(feed))
                 r = self._get_urls_feed(feed["url"], feed["title"], feed["tags"])
                 feeds = feeds + r
@@ -85,7 +107,10 @@ class MispScraperFeedparser():
     def fetch_rss(self) -> bool:
         """ Load the RSS data, and get all the URLs contained in the RSS data """
         if len(self.feed_list) > 0:
+            started = time.monotonic()
+            logging.info("Starting RSS fetch for {} feed(s)".format(len(self.feed_list)))
             self.url_list = self._get_rss()
+            logging.info("Finished RSS fetch in {:.2f}s with {} URL(s)".format(time.monotonic() - started, len(self.url_list)))
             return True
         else:
             logging.error("Unable to fetch RSS because there are no feeds loaded")
@@ -117,8 +142,11 @@ class MispScraperFeedparser():
         if not url:
             return False
         try:
-            response = cf_requests.get(url, impersonate="chrome124")
+            response = cf_requests.get(url, impersonate="chrome124", timeout=30)
             return response.text
+        except requests.exceptions.Timeout:
+            logging.error("Timeout when fetching raw HTML for {}".format(url))
+            return False
         except Exception as e:
             logging.error("Unable to fetch raw HTML for {} {}".format(url, e))
             return False
@@ -491,17 +519,25 @@ class MispScraperCron():
 
     def refresh_feed_data(self) -> None:
         """ Update the list of links found in RSS """
+        logging.info("Loading feed list from {}".format(self.config.feedlist))
         self.feedparser.load_feeds(self.config.feedlist)
         self.feedparser.get_feeds()
+        logging.info("Starting feed parsing")
         self.feedparser.fetch_rss()
+        logging.info("Feed parsing completed")
 
     def push_to_redis(self) -> None:
         """ Push the links to Redis"""
-        for el in self.feedparser.get_urls():
+        urls = self.feedparser.get_urls()
+        logging.info("Publishing {} URL(s) to Redis".format(len(urls)))
+        for index, el in enumerate(urls, start=1):
+            if index % 25 == 0:
+                logging.info("Publishing progress: {}/{}".format(index, len(urls)))
             rawhtml = self.feedparser.fetch_rawhtml(el.get("link", False))
             if rawhtml:
                 el["rawhtml"] = rawhtml
             self.redis.publish(el)
+        logging.info("Finished publishing to Redis")
 
     def cleanup_events(self) -> None:
         """ Cleanup old events (passed retention date and workflow not complete"""

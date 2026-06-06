@@ -4,9 +4,9 @@ After=misp-workers.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/ubuntu/misp-scraper/
-Environment=PATH=/home/ubuntu/misp-scraper/scraper/bin
-ExecStart=/home/ubuntu/misp-scraper/scraper/bin/python /home/ubuntu/misp-scraper/misp-scraper.py subscribe
+WorkingDirectory=/var/www/MISP/misp-custom/misp-scraper/
+Environment=PATH=/var/www/MISP/misp-custom/misp-scraper/venv/bin
+ExecStart=/var/www/MISP/misp-custom/misp-scraper/venv/bin/python /var/www/MISP/misp-custom/misp-scraper/misp-scraper.py subscribe
 Restart=always
 RestartSec=10
 
