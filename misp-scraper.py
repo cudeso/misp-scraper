@@ -143,6 +143,7 @@ class MispScraperFeedparser():
             return False
         try:
             response = cf_requests.get(url, impersonate="chrome124", timeout=30)
+            response.raise_for_status()
             return response.text
         except requests.exceptions.Timeout:
             logging.error("Timeout when fetching raw HTML for {}".format(url))
@@ -190,44 +191,45 @@ class MispScraperRedis():
         sub.subscribe(self.channel)
         logging.info("Starting subscribe")
         for message in sub.listen():
+            if message["type"] != "message":
+                continue
 
             link = ""
-            if message["type"] == "message":
-                data = message["data"]
-                data = json.loads(data)
-                link = data["link"].strip()
-                feed = data["feed"]
-                feed_title = data["feed_title"]
-                feed_tags = data["feed_tags"]
-                title = data["title"]
+            try:
+                data = json.loads(message["data"])
+                link = data.get("link", "").strip()
+                feed = data.get("feed", "")
+                feed_title = data.get("feed_title", "")
+                feed_tags = data.get("feed_tags", [])
+                title = data.get("title", "")
                 rawhtml = data.get("rawhtml", False)
                 additional_attributes = data.get("additional_attributes", [])
+
+                if not link and not rawhtml:
+                    logging.error("Skipping message from {} without a link or raw HTML".format(feed_title))
+                    continue
 
                 if not link.startswith(("http://", "https://")):
                     link = "https://{}".format(link)
 
-                try:
-                    if not title:
-                        f = MispScraperFeedparser()
-                        if rawhtml:
-                            title = f.get_page_title(False, rawhtml)
-                            if not title or len(title) < 1:
-                                title = "Raw HTML"
-                        else:
-                            title = f.get_page_title(link)
+                if not title:
+                    f = MispScraperFeedparser()
+                    if rawhtml:
+                        title = f.get_page_title(False, rawhtml) or "Raw HTML"
+                    else:
+                        title = f.get_page_title(link) or link
 
-                    if link:
-                        # Avoid adding the event twice
-                        misp_title = "{}{}".format(self.config.misp_scraper_event, title).strip()
-                        misp_tag = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed_title)
-                        res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
-                        if len(res) == 0:
-                            self.misp_scraper_event.create_event(feed_title, feed, title, link, feed_tags, rawhtml, additional_attributes)
-                            time.sleep(self.scraper_redis_sleep)
-                        else:
-                            logging.debug("Skipping creation of MISP event {}, already there.".format(misp_title))
-                except Exception as e:
-                    logging.error("Unable to parse link {} {}".format(link, e))
+                # Avoid adding the event twice
+                misp_title = "{}{}".format(self.config.misp_scraper_event, title).strip()
+                misp_tag = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed_title)
+                res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
+                if len(res) == 0:
+                    self.misp_scraper_event.create_event(feed_title, feed, title, link, feed_tags, rawhtml, additional_attributes)
+                    time.sleep(self.scraper_redis_sleep)
+                else:
+                    logging.debug("Skipping creation of MISP event {}, already there.".format(misp_title))
+            except Exception as e:
+                logging.error("Unable to handle message for link {} {}".format(link, e))
 
 
 class MispScraperEvent():
@@ -284,7 +286,7 @@ class MispScraperEvent():
         if rawhtml:
             soup = BeautifulSoup(rawhtml, 'html.parser')
 
-            toRemove = ['script', 'head', 'header', 'footer', 'meta', 'link' 'nav', 'style']
+            toRemove = ['script', 'head', 'header', 'footer', 'meta', 'link', 'nav', 'style']
             toStrip = ['a', 'img']
 
             for tag in soup.find_all(toRemove):
@@ -293,11 +295,23 @@ class MispScraperEvent():
         else:
             return False
 
+    def _flag_http_error(self, event, link, status) -> None:
+        """ Tag or delete an event for which the article could not be fetched """
+        logging.error("Got HTTP {} for {}".format(status, link))
+        if self.autodelete_when_assumed_errors:
+            self.misp.delete_event(event.uuid)
+            logging.debug("Deleting event for {}".format(link))
+        else:
+            self.misp.tag(event.uuid, "misp-scraper:HTTP={}".format(status))
+
     def _add_misp_report(self, event, link, extract_elements, rawhtml=False) -> bool:
         """ Add a MISP report to a MISP event """
         if not rawhtml and link:
             try:
-                response = cf_requests.get(link, impersonate="chrome124")
+                response = cf_requests.get(link, impersonate="chrome124", timeout=30)
+                if not response.ok:
+                    self._flag_http_error(event, link, response.status_code)
+                    return False
                 rawhtml = response.text
             except Exception as e:
                 logging.error("Unable to pre-fetch raw HTML for {} {}".format(link, e))
@@ -313,7 +327,7 @@ class MispScraperEvent():
 
                 # Before we extra elements, check for required strings
                 required_string_match = self._verify_required_strings(event)
-                if self.autodelete_when_no_required_strings and not required_string_match:
+                if self.autodelete_when_no_required_strings and required_string_match is False:
                     self.misp.delete_event(event.id)
                     logging.debug("Delete event because no required string matches found")
                     return False                
@@ -336,25 +350,15 @@ class MispScraperEvent():
             res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
             # We don't get the HTTP errors when creating the report; doing some assumptions
             if "EventReport" not in res.json():
-                logging.error("No content returned for {}".format(link))
-                if self.autodelete_when_assumed_errors:
-                    self.misp.delete_event(event.uuid)
-                    logging.debug("Deleting event for {}".format(link))
-                else:
-                    self.misp.tag(event.uuid, "misp-scraper:HTTP=404")
+                self._flag_http_error(event, link, 404)
             elif "403 Forbidden" in res.json()["EventReport"]["content"]:  # Happens for Red Canary
-                logging.error("Got a 403 Forbidden for {}".format(link))
-                if self.autodelete_when_assumed_errors:
-                    self.misp.delete_event(event.uuid)
-                    logging.debug("Deleting event for {}".format(link))
-                else:
-                    self.misp.tag(event.uuid, "misp-scraper:HTTP=403")
+                self._flag_http_error(event, link, 403)
             else:
                 report_id = int(res.json()["EventReport"]["id"])
                 if report_id > 0:
                     # Before we extra elements, check for required strings
                     required_string_match = self._verify_required_strings(event)
-                    if self.autodelete_when_no_required_strings and not required_string_match:
+                    if self.autodelete_when_no_required_strings and required_string_match is False:
                         self.misp.delete_event(event.id)
                         logging.debug("Delete event because no required string matches found")
                         return False
@@ -369,39 +373,41 @@ class MispScraperEvent():
                     return True
             return False
 
-    def _verify_required_strings(self, event) -> bool:
-        """ Verify if there are strings (or substrings) present in the scraped site """
-        if event and self.misp_warninglist_required_strings > 0:
-            try:
-                alert_values = self.misp.get_warninglist(self.misp_warninglist_required_strings, pythonify=True)
-                first_event_report = int(self.misp.get_event_reports(event.id)[0]['EventReport']['id'])
-                match = False
+    def _verify_required_strings(self, event) -> bool | None:
+        """ Verify if there are strings (or substrings) present in the scraped site. None when we could not check. """
+        if not event or self.misp_warninglist_required_strings < 1:
+            return None
 
-                if first_event_report > 0:
-                    event_report_content = self.misp.get_event_report(first_event_report)['EventReport']['content']
-                    if len(event_report_content) > 0:
-                        for el in alert_values.WarninglistEntry:
-                            value = el["value"]
-                            if not value:
-                                continue
-                            escaped_value = re.escape(value)
-                            if re.search(r"\b{}\b".format(escaped_value), event_report_content, re.I):
-                                self.misp.tag(event.uuid, "scraper:matchstring={}".format(value))
-                                logging.debug("Event report matches string {}".format(value))
-                                match = True
+        try:
+            alert_values = self.misp.get_warninglist(self.misp_warninglist_required_strings, pythonify=True)
+            event_reports = self.misp.get_event_reports(event.id)
+            if not event_reports:
+                logging.error("No event report to match the required strings against for {}".format(event.uuid))
+                return None
+            first_event_report = event_reports[0]['EventReport']['id']
+            event_report_content = self.misp.get_event_report(first_event_report)['EventReport']['content'] or ""
 
-                            elif re.search(r"{}".format(escaped_value), event_report_content, re.I):
-                                self.misp.tag(event.uuid, "scraper:matchsubstring={}".format(value))
-                                logging.debug("Event report matches substring {}".format(value))
-                                match = True
+            match = False
+            for el in alert_values.WarninglistEntry:
+                value = el["value"]
+                if not value:
+                    continue
+                escaped_value = re.escape(value)
+                if re.search(r"\b{}\b".format(escaped_value), event_report_content, re.I):
+                    self.misp.tag(event.uuid, "scraper:matchstring={}".format(value))
+                    logging.debug("Event report matches string {}".format(value))
+                    match = True
 
-                return match
+                elif re.search(escaped_value, event_report_content, re.I):
+                    self.misp.tag(event.uuid, "scraper:matchsubstring={}".format(value))
+                    logging.debug("Event report matches substring {}".format(value))
+                    match = True
 
-            except Exception as e:
-                logging.error("Failed to parse warninglist for required strings {} {}".format(self.misp_warninglist_required_strings, e))
-                return False
-        else:
-            return False
+            return match
+
+        except Exception as e:
+            logging.error("Failed to parse warninglist for required strings {} {}".format(self.misp_warninglist_required_strings, e))
+            return None
 
     def cleanup_event(self, event) -> bool:
         """ Remove unwanted attributes from an event"""
@@ -492,7 +498,7 @@ class MispScraperEvent():
 
                 if len(additional_attributes) > 0:
                     for attr in additional_attributes:
-                        self._add_attribute(event, attr["category"], attr["type"], attr["value"], attr["comment"])
+                        self._add_attribute(event, attr["category"], attr["type"], attr["comment"], attr["value"])
                 self._add_misp_report(event, link, extract_elements, rawhtml)
 
                 if self.attach_pdf:
@@ -541,18 +547,29 @@ class MispScraperCron():
 
     def cleanup_events(self) -> None:
         """ Cleanup old events (passed retention date and workflow not complete"""
-        if self.misp_retentiontime:
-            misp = MispScraperEvent().misp
-            events = misp.search(controller="events", tags=["workflow:state=\"incomplete\""], timestamp=["3650d", "{}".format(self.misp_retentiontime)])
-    
-            if len(events) > 0:
-                for event in events:
-                    misp.delete_event(event["Event"]["id"])
-                    logging.info("Delete outdated event {} - {}".format(event["Event"]["id"], event["Event"]["info"]))
-            else:
-                logging.debug("No outdated events found during cron")
-        else:
+        if not self.misp_retentiontime:
             logging.debug("No retention time specified, not cleaning up events")
+            return
+
+        if not self.config.misp_scraper_tags_local:
+            logging.error("Not cleaning up events, misp_scraper_tags_local is empty")
+            return
+
+        misp = MispScraperEvent().misp
+        # Only events we created ourselves
+        scraper_tags = misp.build_complex_query(and_parameters=self.config.misp_scraper_tags_local)
+        events = misp.search(controller="events", tags=scraper_tags,
+                             timestamp=["3650d", self.misp_retentiontime], metadata=True)
+        if not isinstance(events, list):
+            logging.error("Unable to search for outdated events {}".format(events))
+            return
+
+        if len(events) > 0:
+            for event in events:
+                misp.delete_event(event["Event"]["id"])
+                logging.info("Delete outdated event {} - {}".format(event["Event"]["id"], event["Event"]["info"]))
+        else:
+            logging.debug("No outdated events found during cron")
 
 
 class MispScraperConfig():
