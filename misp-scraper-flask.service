@@ -5,8 +5,8 @@ After=misp-workers.service
 [Service]
 Type=simple
 WorkingDirectory=/home/ubuntu/misp-scraper/
-Environment=PATH=/home/ubuntu/misp-scraper/scraper/bin
-ExecStart=/home/ubuntu/misp-scraper/scraper/bin/python /home/ubuntu/misp-scraper/misp-scraper.py flask
+Environment=PATH=/home/ubuntu/misp-scraper/venv/bin
+ExecStart=/home/ubuntu/misp-scraper/venv/bin/python /var/www/MISP/misp-custom/misp-scraper/misp-scraper.py flask
 Restart=always
 RestartSec=10
 

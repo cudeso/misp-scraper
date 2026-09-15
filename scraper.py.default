@@ -22,7 +22,7 @@ misp_verifycert = False
 misp_distribution = 2                                           # Connected communities
 misp_threat_level_id = 2                                        # Medium
 misp_analysis_level = 2                                         # Completed
-misp_scraper_event = "Scraper"                                  # Prefix of the MISP event
+misp_scraper_event = "Scraper: "                                  # Prefix of the MISP event
 misp_retentiontime = "99d"                                      # Set this to >days than URLs are typically stored in the feed
 misp_scraper_tags = ["tlp:clear"]
 misp_scraper_tags_local = ["curation:source=\"misp-scraper\"", "workflow:state=\"incomplete\""]
