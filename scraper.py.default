@@ -13,7 +13,7 @@ logging_level = "error"
 feedlist = "/var/www/MISP/misp-custom/scripts/misp-scraper/feedlist.json"            # Location of the RSS feedlist
 rawhtml_distribution = 4
 rawhtml_sharing_group_id = 4
-attach_pdf=True
+attach_pdf=False
 
 # MISP configuration
 misp_key = ""                                                   # MISP API key

@@ -1,62 +1,87 @@
 # MISP Scraper
-A web scraper to create MISP events and reports
+A web scraper that turns web pages into MISP events and reports.
 
 More details on the [MISP project website](https://www.misp-project.org/2022/08/08/MISP-scraper.html/).
 
+The scraper is one of the core data collection components of zsazsa. Don't know what zsazsa is? zsazsa is a **CTI program management and production platform** built around MISP, see: [https://zsazsa-project.org/](https://zsazsa-project.org/).
+
+# Docker
+
+There is also a Docker version. One image covers the subscriber, the cron job and the Flask form, with `scraper.py`, the feed list and the log kept in a `config` volume. It connects to a Redis server you already run rather than starting one of its own.
+
+The setup, configuration and day to day commands are documented in **[docker/README.md](docker/README.md)**. The MISP prerequisites below apply to the Docker version as well.
+
 # Prerequisites
 
-[MISP modules installed and enabled](https://github.com/MISP/misp-modules#how-to-install-and-start-misp-modules-in-a-python-virtualenv-recommended).
+You need [MISP modules installed and enabled](https://github.com/MISP/misp-modules#how-to-install-and-start-misp-modules-in-a-python-virtualenv-recommended).
 
-Make sure that you enable `Plugin.Enrichment_html_to_markdown_enabled` (under Administration, Server settings & maintenance, Plugin). This module is used to fetch the HTML from an external URL. This module also adds the button 'Import from URL' in the MISP Event Reports section.
+Enable `Plugin.Enrichment_html_to_markdown_enabled` under Administration, Server settings & maintenance, Plugin. This module fetches the HTML from an external URL. It also adds the 'Import from URL' button to the MISP Event Reports section.
 
-Also ensure you have set `Security.eventreport_enable_arbitrary_urls` to 1 via the CLI (`sudo -u www-data ../app/Console/cake Admin setSetting "Security.eventreport_enable_arbitrary_urls" 1`).
+You also need `Security.eventreport_enable_arbitrary_urls` set to 1, which you do from the CLI:
+
+```
+sudo -u www-data ../app/Console/cake Admin setSetting "Security.eventreport_enable_arbitrary_urls" 1
+```
 
 # Install
 
 ```
 git clone https://github.com/cudeso/misp-scraper
 cd misp-scraper
-virtualenv scraper
-source scraper/bin/activate
+virtualenv venv
+source venv/bin/activate
 pip install -r requirements.txt
 cp scraper.py.default scraper.py
 ```
 
-Then install and enable the service scripts (change the path /home/ubuntu to your MISP user).
-Run the cron job.
+Edit `scraper.py`, then install and enable the service scripts. The paths in the .service files point at `/var/www/MISP/misp-custom/misp-scraper`, so change them if you put the scraper somewhere else. Finally add the cron job.
 
 # Run without a service script and without Flask
 
-In one terminal, start the **subscriber** with `/var/www/MISP/misp-custom/scripts/misp-scraper/scraper/bin/python /var/www/MISP/misp-custom/scripts/misp-scraper/misp-scraper.py subscribe`. Do this as the Apache user (`www-data`). Then start a second shell and run the **cron** with `/var/www/MISP/misp-custom/scripts/misp-scraper/scraper/bin/python /var/www/MISP/misp-custom/scripts/misp-scraper/misp-scraper.py cron`.
+Useful when you are testing. Start the **subscriber** in one terminal, as the Apache user (`www-data`):
+
+```
+sudo -u www-data /var/www/MISP/misp-custom/misp-scraper/venv/bin/python /var/www/MISP/misp-custom/misp-scraper/misp-scraper.py subscribe
+```
+
+Then run the **cron** from a second shell:
+
+```
+sudo -u www-data /var/www/MISP/misp-custom/misp-scraper/venv/bin/python /var/www/MISP/misp-custom/misp-scraper/misp-scraper.py cron
+```
+
+You need both. The cron parses the feeds and publishes the URLs to Redis, the subscriber picks them up and creates the events.
 
 # Submit raw HTML
 
-Instead of scraping a site you can also submit the raw HTML via the Flask web form. The scraper will then strip the HTML and convert it to MarkDown. It is then added as a MISP report, after which the attributes and context elements are extracted. For existing setups, install `markdownify` in the venv.
+Rather than scraping a site you can submit the raw HTML through the Flask web form. The scraper strips the HTML, converts it to Markdown and adds it as a MISP report, after which the attributes and context elements are extracted. On an existing setup you first have to install `markdownify` in the venv.
 
-This is the first step to using another 'scraper' instead of the regular Python requests - https://github.com/cudeso/misp-scraper/issues/6 .
+This was the first step towards fetching pages with something other than plain Python requests, see [issue 6](https://github.com/cudeso/misp-scraper/issues/6).
 
 # Automatically delete scraped attributes
 
-Some elements from the scraped web site are not useful to be added as a MISP attribute, for example 'Zone.Identifier' and 'http://google.com/ads/remarketingsetup'. 
+Not everything picked up from a page is worth keeping as a MISP attribute. 'Zone.Identifier' and 'http://google.com/ads/remarketingsetup' are typical examples.
 
-After scraping a website, the scraper reads the entries from one warninglist (defined via **misp_warninglist** in the config) and then (either hard or soft- **misp_hard_delete_on_cleanup**) deletes the matching attributes from the newly created MISP event. This avoids that you repeatedly have to delete the same attributes over and over from newly created events.
+After scraping a site, the scraper reads the entries of a warninglist (set with **misp_warninglist** in the config) and deletes the matching attributes from the event it just created. Deletion is soft or hard depending on **misp_hard_delete_on_cleanup**. This saves you removing the same attributes over and over from new events.
 
-The warninglist needs to be of **string** type. Do not forget to enable this warninglist.
+The warninglist has to be of type **string**. Do not forget to enable it.
 
 # Only create events when specific strings are present
 
-It can be useful to only create a MISP event when there are specific strings present in the scraped data. For example if you're scraping sources and you only want to create an event when there is "intelligence" or "confidential" in the page.
+Sometimes you only want an event when the scraped data contains particular words. For example when you scrape a range of sources but only care about pages mentioning "intelligence" or "confidential".
 
-The scraper can use a word list defined from the entries of a warninglist (defined via **misp_warninglist_required_strings** in the config) and then verify if the string is present in the scraped source. If there is a match, either as a **full string** or as a **substring**, then the event is tagged. If you set  **autodelete_when_no_required_strings** to True, then events are deleted if there is no match. To summarise, if you want to only create events when certain strings are present in the source, then add these keywords to the warninglist and set autodelete_when_no_required_strings to True. Leave autodelete_when_no_required_strings to False if you just want to have events tagged with matches against the substrings.
+The scraper builds a word list from a warninglist (set with **misp_warninglist_required_strings** in the config) and checks the scraped source against it. A match, either as a **full string** or as a **substring**, tags the event. If you set **autodelete_when_no_required_strings** to True, events without a match are deleted.
 
-The warninglist needs to be of **string** type. Do not forget to enable this warninglist.
+In short: to only create events when certain strings are present, put those keywords in the warninglist and set autodelete_when_no_required_strings to True. Leave it False if you just want matching events to be tagged.
+
+The warninglist has to be of type **string**. Do not forget to enable it.
 
 ![misp-scraper-match_string.png](assets/misp-scraper-match_string.png)
 ![misp-scraper-warninglists.png](assets/misp-scraper-warninglists.png)
 
 # Auto delete when assumed HTTP errors
 
-You can now automatically delete events when there are (assumed) HTTP errors. For example when no conent is returned or when an HTTP 403 message is returned.
+Events can also be deleted automatically when the scraper assumes an HTTP error, for example when no content is returned or when the site answers with a 403. This is set with **autodelete_when_assumed_errors**.
 
 # Screenshots
 
