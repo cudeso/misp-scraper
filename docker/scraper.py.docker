@@ -1,0 +1,47 @@
+# misp-scraper configuration for the Docker image.
+# Copy to docker/config/scraper.py, then set misp_url and misp_key.
+import os
+
+# General configuration
+misp_scraper_log = "/config/scraper.log"                        # In the configuration volume
+app_name = "MISP-Scraper"                                       # Used in the Flask server
+manual_feed = "Manual"                                 
+manual_feedsource = "Manual"
+flask_secret_key = "MyZsuePerSecret1984key"                     # Flask secret key. Change this to something random
+flask_address = "127.0.0.1"                                     # IP address for the Flask server
+flask_port = 5200  
+flask_url = "http://127.0.0.1:5200"
+flask_certificate_file = "/etc/ssl/private/misp.local.crt"      # Point to a certificate file (fe. the one from MISP)
+flask_certificate_keyfile = "/etc/ssl/private/misp.local.key"   # Point to a certificate key file (fe. the one from MISP)
+logging_level = "error"
+feedlist = "/config/feedlist.json"                              # In the configuration volume
+rawhtml_distribution = 4
+rawhtml_sharing_group_id = 4
+attach_pdf=True
+
+# MISP configuration
+misp_key = ""                                                   # MISP API key
+misp_url = ""                                                   # MISP url
+misp_verifycert = False
+misp_distribution = 2                                           # Connected communities
+misp_threat_level_id = 2                                        # Medium
+misp_analysis_level = 2                                         # Completed
+misp_scraper_event = "Scraper: "                                  # Prefix of the MISP event
+misp_retentiontime = "99d"                                      # Set this to >days than URLs are typically stored in the feed
+misp_scraper_tags = ["tlp:clear"]
+misp_scraper_tags_local = ["curation:source=\"misp-scraper\"", "workflow:state=\"incomplete\""]
+misp_warninglist = 0
+misp_warninglist_required_strings = 0
+autodelete_when_no_required_strings = False
+autodelete_when_assumed_errors = False
+misp_hard_delete_on_cleanup = False
+add_source_website_as_tag = True
+extract_elements = False
+misp_scraper_tags_prefix = "scraper"
+
+# Redis configuration
+redis_host = "redis"
+redis_password = os.environ.get("REDIS_PASSWORD", "")          # Shared with the redis service via docker/.env
+redis_port = 6379
+redis_channel = "urls"
+redis_scraper_redis_sleep = 2

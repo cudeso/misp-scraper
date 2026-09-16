@@ -1,0 +1,7 @@
+.git
+docs
+assets
+__pycache__
+*.pyc
+# A local config would carry the MISP API key into the build context.
+scraper.py

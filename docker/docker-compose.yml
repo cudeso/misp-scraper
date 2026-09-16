@@ -1,0 +1,34 @@
+name: misp-scraper
+
+x-scraper: &scraper
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  image: misp-scraper:latest
+  environment:
+    REDIS_PASSWORD: ${REDIS_PASSWORD}
+  volumes:
+    - ./config:/config
+  depends_on:
+    - redis
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7-alpine
+    # Pub/sub messages are transient, so there is nothing to persist.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in docker/.env}", "--save", ""]
+    ports:
+      - "${REDIS_BIND:-127.0.0.1}:6379:6379"
+    restart: unless-stopped
+
+  subscribe:
+    <<: *scraper
+    command: ["subscribe"]
+
+  cron:
+    <<: *scraper
+    command: ["cron-loop"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CRON_INTERVAL: ${CRON_INTERVAL:-3600}
