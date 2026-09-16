@@ -20,6 +20,9 @@ Set `misp_url` and `misp_key` in `config/scraper.py`, and `REDIS_PASSWORD` in `.
 to the password of the existing redis. For a redis on another host set `REDIS_HOST`
 and `REDIS_PORT` as well.
 
+The entrypoint checks that `config/scraper.py` imports and has `misp_url` and
+`misp_key` set before starting anything, and reports what is missing in one line.
+
 The container writes `config/scraper.log` as UID 1000. If that is not you:
 
 ```
