@@ -21,7 +21,7 @@ to the password of the existing redis. For a redis on another host set `REDIS_HO
 and `REDIS_PORT` as well.
 
 The entrypoint checks that `config/scraper.py` imports and has `misp_url` and
-`misp_key` set before starting anything, and reports what is missing in one line.
+`misp_key` set before starting anything. If not, it says what is missing and stops.
 
 The container writes `config/scraper.log` as UID 1000. If that is not you:
 
@@ -47,9 +47,12 @@ container, logs to the same `config/scraper.log`, and exits when the run is done
 `cron` service keeps running on its schedule meanwhile. Add `subscribe` or `flask` in
 place of the second `cron` to run those one-off.
 
-Nothing retries. Unreachable MISP or redis means the container exits and restarts, so
-a few restarts at boot are normal. `docker compose logs` has those; everything else is
-in `config/scraper.log`.
+Nothing retries internally. Unreachable MISP or redis means the container exits and
+restarts, so a few restarts at boot are normal. A bad configuration is different: the
+entrypoint exits 0 so `restart: on-failure` leaves it stopped instead of looping, and
+`docker compose ps -a` shows it as `Exited (0)` with the reason in the logs. Fix the
+config and `docker compose up -d` again. `docker compose logs` has all of that,
+everything else is in `config/scraper.log`.
 
 ## zsazsa
 

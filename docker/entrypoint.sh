@@ -1,15 +1,21 @@
 #!/bin/sh
 set -e
 
-# Config errors do not fix themselves on restart, so fail on them here with one
-# readable line instead of letting the restart policy loop on a traceback.
+# A bad configuration does not fix itself on restart. The compose services use
+# restart: on-failure, which leaves a container alone once it exits 0, so the checks
+# below report the problem and exit 0 deliberately rather than looping forever.
+config_error() {
+    echo "misp-scraper: not starting until the configuration is fixed" >&2
+    exit 0
+}
+
 require_config() {
     if [ ! -f /config/scraper.py ]; then
         echo "misp-scraper: no scraper.py in /config, mount the configuration volume" >&2
-        exit 1
+        config_error
     fi
 
-    python - <<'PY' || exit 1
+    if ! python - <<'PY'
 import sys
 
 try:
@@ -21,6 +27,9 @@ missing = [n for n in ("misp_url", "misp_key") if not str(getattr(scraper, n, ""
 if missing:
     sys.exit("misp-scraper: set {} in /config/scraper.py".format(" and ".join(missing)))
 PY
+    then
+        config_error
+    fi
 }
 
 case "$1" in
@@ -36,6 +45,8 @@ case "$1" in
         done
         ;;
     *)
+        # Not exit 0: the compose services pass a fixed command, so this is someone
+        # running the image by hand and wanting a real exit status.
         echo "misp-scraper: usage: subscribe | flask | cron | cron-loop" >&2
         exit 1
         ;;

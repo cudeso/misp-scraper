@@ -13,7 +13,7 @@ x-scraper: &scraper
     REDIS_PASSWORD: ${REDIS_PASSWORD}
   volumes:
     - ./config:/config
-  restart: unless-stopped
+  restart: on-failure
 
 services:
   subscribe:
