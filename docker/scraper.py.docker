@@ -40,8 +40,8 @@ extract_elements = False
 misp_scraper_tags_prefix = "scraper"
 
 # Redis configuration
-redis_host = "redis"
-redis_password = os.environ.get("REDIS_PASSWORD", "")          # Shared with the redis service via docker/.env
-redis_port = 6379
+redis_host = os.environ.get("REDIS_HOST", "127.0.0.1")   # The redis server, set in docker/.env
+redis_password = os.environ.get("REDIS_PASSWORD", "")          # Set in docker/.env
+redis_port = int(os.environ.get("REDIS_PORT", "6379"))
 redis_channel = "urls"
 redis_scraper_redis_sleep = 2
