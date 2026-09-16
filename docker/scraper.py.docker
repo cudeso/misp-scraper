@@ -1,5 +1,9 @@
+# misp-scraper configuration for the Docker image.
+# Copy to docker/config/scraper.py, then set misp_url and misp_key.
+import os
+
 # General configuration
-misp_scraper_log = "/var/www/MISP/app/tmp/logs/scraper.log"     # Log file for the scraper
+misp_scraper_log = "/config/scraper.log"                        # In the configuration volume
 app_name = "MISP-Scraper"                                       # Used in the Flask server
 manual_feed = "Manual"                                 
 manual_feedsource = "Manual"
@@ -10,7 +14,7 @@ flask_url = "http://127.0.0.1:5200"
 flask_certificate_file = "/etc/ssl/private/misp.local.crt"      # Point to a certificate file (fe. the one from MISP)
 flask_certificate_keyfile = "/etc/ssl/private/misp.local.key"   # Point to a certificate key file (fe. the one from MISP)
 logging_level = "error"
-feedlist = "/var/www/MISP/misp-custom/scripts/misp-scraper/feedlist.json"            # Location of the RSS feedlist
+feedlist = "/config/feedlist.json"                              # In the configuration volume
 rawhtml_distribution = 4
 rawhtml_sharing_group_id = 4
 attach_pdf=False
@@ -36,8 +40,8 @@ extract_elements = False
 misp_scraper_tags_prefix = "scraper"
 
 # Redis configuration
-redis_host = "redis"
-redis_password = "redispassword"
-redis_port = 6379
+redis_host = os.environ.get("REDIS_HOST", "127.0.0.1")   # The redis server, set in docker/.env
+redis_password = os.environ.get("REDIS_PASSWORD", "")          # Set in docker/.env
+redis_port = int(os.environ.get("REDIS_PORT", "6379"))
 redis_channel = "urls"
 redis_scraper_redis_sleep = 2

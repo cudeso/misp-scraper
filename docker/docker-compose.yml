@@ -1,0 +1,30 @@
+name: misp-scraper
+
+# No redis service: connect to a redis server that already runs
+x-scraper: &scraper
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  image: misp-scraper:latest
+  network_mode: host
+  environment:
+    REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+    REDIS_PORT: ${REDIS_PORT:-6379}
+    REDIS_PASSWORD: ${REDIS_PASSWORD}
+  volumes:
+    - ./config:/config
+  restart: on-failure
+
+services:
+  subscribe:
+    <<: *scraper
+    command: ["subscribe"]
+
+  cron:
+    <<: *scraper
+    command: ["cron-loop"]
+    environment:
+      REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CRON_INTERVAL: ${CRON_INTERVAL:-3600}
