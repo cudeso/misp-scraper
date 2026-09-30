@@ -19,6 +19,8 @@ Set `misp_url` and `misp_key` in `config/scraper.py`, and `REDIS_PASSWORD` in `.
 The entrypoint checks that `config/scraper.py` imports and that `misp_url` and
 `misp_key` are set.
 
+The MISP user of `misp_key` needs a role with the **Tagger** and **Tag Editor** permissions, otherwise no tags are added to the events.
+
 The container writes `config/scraper.log` as UID 1000. If that is not you:
 
 ```

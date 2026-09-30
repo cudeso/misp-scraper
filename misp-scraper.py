@@ -295,6 +295,12 @@ class MispScraperEvent():
         else:
             return False
 
+    def _tag(self, uuid, tag, local=False) -> None:
+        """ Tag an event and log failures (e.g. missing Tagger / Tag Editor permission) """
+        res = self.misp.tag(uuid, tag, local=local)
+        if isinstance(res, dict) and "errors" in res:
+            logging.error("Unable to add tag {} to {}: {}".format(tag, uuid, res["errors"]))
+
     def _flag_http_error(self, event, link, status) -> None:
         """ Tag or delete an event for which the article could not be fetched """
         logging.error("Got HTTP {} for {}".format(status, link))
@@ -302,7 +308,7 @@ class MispScraperEvent():
             self.misp.delete_event(event.uuid)
             logging.debug("Deleting event for {}".format(link))
         else:
-            self.misp.tag(event.uuid, "misp-scraper:HTTP={}".format(status))
+            self._tag(event.uuid, "misp-scraper:HTTP={}".format(status))
 
     def _add_misp_report(self, event, link, extract_elements, rawhtml=False) -> bool:
         """ Add a MISP report to a MISP event """
@@ -394,12 +400,12 @@ class MispScraperEvent():
                     continue
                 escaped_value = re.escape(value)
                 if re.search(r"\b{}\b".format(escaped_value), event_report_content, re.I):
-                    self.misp.tag(event.uuid, "scraper:matchstring={}".format(value))
+                    self._tag(event.uuid, "scraper:matchstring={}".format(value))
                     logging.debug("Event report matches string {}".format(value))
                     match = True
 
                 elif re.search(escaped_value, event_report_content, re.I):
-                    self.misp.tag(event.uuid, "scraper:matchsubstring={}".format(value))
+                    self._tag(event.uuid, "scraper:matchsubstring={}".format(value))
                     logging.debug("Event report matches substring {}".format(value))
                     match = True
 
@@ -465,25 +471,25 @@ class MispScraperEvent():
                 logging.info("Created MISP event {} for {}".format(event.uuid, title))
 
                 for tag in self.misp_scraper_tags:
-                    self.misp.tag(event.uuid, tag)
+                    self._tag(event.uuid, tag)
 
                 for tag in self.misp_scraper_tags_local:
-                    self.misp.tag(event.uuid, tag, local=True)
+                    self._tag(event.uuid, tag, local=True)
                     
                 for tag in feed_tags:
-                    self.misp.tag(event.uuid, tag, local=True)
+                    self._tag(event.uuid, tag, local=True)
                     
                 data_source = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed)                
-                self.misp.tag(event.uuid, data_source, local=True)
+                self._tag(event.uuid, data_source, local=True)
                 
                 if self.add_source_website_as_tag:
                     primary_data_source = self._extract_primary_data_source(link)
                     if primary_data_source:
                         primary_data_source_tag = "{}:primary-data-collection-source:{}".format(misp_scraper_tags_prefix, primary_data_source)
-                        self.misp.tag(event.uuid, primary_data_source_tag, local=True)
+                        self._tag(event.uuid, primary_data_source_tag, local=True)
                         
                 if self.misp_retentiontime:
-                    self.misp.tag(event.uuid, "retention:{}".format(self.misp_retentiontime), local=True)
+                    self._tag(event.uuid, "retention:{}".format(self.misp_retentiontime), local=True)
                 #self.misp.tag(event.uuid, "misp-scraper:{}".format(feed), local=True)
 
                 self._add_attribute(event, "Other", "comment", "Blog title", title)
