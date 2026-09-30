@@ -468,6 +468,9 @@ class MispScraperEvent():
 
             try:
                 event = self.misp.add_event(event, pythonify=True)
+                if isinstance(event, dict) and "errors" in event:
+                    logging.error("MISP refused to create event {}: {}".format(title, event["errors"]))
+                    return False
                 logging.info("Created MISP event {} for {}".format(event.uuid, title))
 
                 for tag in self.misp_scraper_tags:
