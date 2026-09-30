@@ -1,0 +1,36 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt 'ruff>=0.16,<0.17'
+      # Syntax errors and undefined names only
+      - run: ruff check --select E9,F63,F7,F82 $(git ls-files '*.py')
+      - name: Config templates compile
+        run: python -c "import sys; [compile(open(f).read(), f, 'exec') for f in sys.argv[1:]]" scraper.py.default docker/scraper.py.docker
+      - name: Feed list is valid JSON
+        run: python -m json.tool feedlist.json > /dev/null
+      # Import the script with the default config; nothing connects to MISP or redis
+      - name: Import misp-scraper.py
+        run: |
+          sed 's|^misp_scraper_log = .*|misp_scraper_log = "/dev/null"|' scraper.py.default > scraper.py
+          python -c "import runpy; runpy.run_path('misp-scraper.py', run_name='ci')"
