@@ -1,0 +1,29 @@
+# What misp-scraper needs. A lower bound is the oldest version misp-scraper
+# works with.
+#
+# requirements.txt pins every package, these and the ones they pull in, to the
+# version that is installed. It is generated from this file, not edited:
+#
+#   uv pip compile requirements.in --universal --python-version 3.10 -o requirements.txt
+#
+# --universal because misp-scraper runs on Python 3.10 and later, and some
+# packages need another version, or an extra package, on the older ones. The
+# lock marks those pins with the Python versions they are for. Without
+# --upgrade, uv keeps the versions already pinned and only resolves what
+# changed here.
+#
+# setuptools is not listed. It came in for the "scraper" package from PyPI,
+# whose setup.py imports distutils, which Python 3.12 no longer has. That
+# package was never used (scraper is the local config) and is gone, and
+# nothing else needs setuptools to install or run.
+pymisp>=2.5,<3
+curl_cffi>=0.7,<1       # the chrome124 impersonation target
+feedparser>=6.0.13,<7   # older ones pull in sgmllib3k, which has no wheel
+                        # and needs setuptools to build
+redis>=5.0,<9
+beautifulsoup4>=4.12,<5
+markdownify>=0.12,<2
+flask>=3.0,<4
+requests>=2.32,<3       # used directly; below 2.32 is CVE-2024-35195, a
+                        # verify=False that sticks to the connection pool
+urllib3>=2.0,<3         # used directly, for disable_warnings
