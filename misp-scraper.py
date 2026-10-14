@@ -1,3 +1,6 @@
+# The release tag must be "v" followed by this, the release workflow checks it.
+__version__ = "1.0.0"
+
 import feedparser
 import logging
 import os

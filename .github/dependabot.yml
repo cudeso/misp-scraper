@@ -1,5 +1,29 @@
 version: 2
 updates:
+  # requirements.in holds the ranges misp-scraper needs and requirements.txt
+  # the exact versions, compiled from it by uv. The uv ecosystem, not pip, is
+  # the one that understands that pair: it recompiles the lock with the options
+  # in its header, --universal and --python-version among them. Grouped to keep
+  # it to one review rather than one per package.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    # Updates the pins in requirements.txt within the ranges, and only moves a
+    # range in requirements.in when the new version falls outside it. The
+    # default, "increase", would raise every lower bound to whatever is newest,
+    # and the lower bound is what misp-scraper needs, not what it was tested
+    # with.
+    versioning-strategy: increase-if-necessary
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps"
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

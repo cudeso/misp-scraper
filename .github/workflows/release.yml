@@ -1,0 +1,135 @@
+name: release
+
+on:
+  # Releases are made on GitHub, which creates the tag along with them.
+  release:
+    types: [published]
+
+# Least privilege. Only the SBOM upload writes, and only to the release.
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: tag matches __version__
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Checks out the commit the release tag points at.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # __version__ is read with ast rather than by running misp-scraper.py,
+      # which needs its dependencies and a scraper.py to import. The tag goes
+      # in through env, not into the script itself: a tag name is free text.
+      - name: Compare the tag with __version__
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(python3 .github/read_version.py)
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error file=misp-scraper.py::The release is tagged $TAG, but misp-scraper.py says $version. Tag it v$version, or set __version__ to match."
+            exit 1
+          fi
+          echo "Tag $TAG matches __version__ $version."
+
+  sbom:
+    name: build the SBOM
+    # A release whose tag does not match __version__ gets no SBOM: it would
+    # name a version that is not the code.
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The Python the Docker image runs, so the SBOM lists the pins that
+      # image installs. requirements.txt has other pins for 3.10 and 3.11.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # The SBOM is taken from an installation of the lock rather than from the
+      # file, because only an installed package has its licence and the rest
+      # of its metadata. The environment has no pip of its own, which
+      # misp-scraper does not depend on and the SBOM would otherwise list.
+      - name: Install the requirements in an environment of their own
+        run: |
+          python -m venv --without-pip "$RUNNER_TEMP/app"
+          pip --python "$RUNNER_TEMP/app/bin/python" install -r requirements.txt
+          pip install 'cyclonedx-bom>=7.5,<8'
+
+      # misp-scraper has no pyproject.toml, which is where cyclonedx-py reads
+      # the SBOM's own subject from. This one exists only for the run, so the
+      # SBOM names misp-scraper, its version and licence, and its direct
+      # dependencies: those in requirements.in, not every package in the lock.
+      - name: Describe misp-scraper for the SBOM
+        run: |
+          python - "$RUNNER_TEMP/pyproject.toml" "$(python .github/read_version.py)" <<'EOF'
+          import json, sys
+          path, version = sys.argv[1:]
+          deps = [line.split("#")[0].strip() for line in open("requirements.in")]
+          with open(path, "w") as f:
+              f.write(f'[project]\nname = "misp-scraper"\nversion = "{version}"\nlicense = "AGPL-3.0-only"\n'
+                      f'dependencies = {json.dumps([d for d in deps if d])}\n')
+          EOF
+
+      # The NTIA minimum elements ask for the supplier, which cyclonedx-py has
+      # no option for, so it is added afterwards and the result checked against
+      # the schema again.
+      - name: Generate the SBOM
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          cyclonedx-py environment --pyproject "$RUNNER_TEMP/pyproject.toml" \
+            --of XML --sv 1.4 -o "misp-scraper-$TAG.cdx.xml" "$RUNNER_TEMP/app/bin/python"
+          python - "misp-scraper-$TAG.cdx.xml" <<'EOF'
+          import sys
+          import xml.etree.ElementTree as ET
+          from cyclonedx.schema import SchemaVersion
+          from cyclonedx.validation.xml import XmlValidator
+
+          path = sys.argv[1]
+          ns = "{http://cyclonedx.org/schema/bom/1.4}"
+          ET.register_namespace("", ns.strip("{}"))
+          tree = ET.parse(path)
+          metadata = tree.getroot().find(ns + "metadata")
+          supplier = ET.Element(ns + "supplier")
+          ET.SubElement(supplier, ns + "name").text = "cudeso.be"
+          # The schema fixes the order: the supplier comes after the component.
+          metadata.insert(list(metadata).index(metadata.find(ns + "component")) + 1, supplier)
+          ET.indent(tree, space="  ")
+          tree.write(path, xml_declaration=True, encoding="utf-8")
+
+          error = XmlValidator(SchemaVersion.V1_4).validate_str(open(path).read())
+          if error:
+              sys.exit(f"The SBOM does not validate: {error}")
+          EOF
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: misp-scraper-*.cdx.xml
+          retention-days: 1
+
+  # The upload is a job of its own because it is the only one that can write.
+  # The build above runs everything pip installed, and code running in a job
+  # can reach that job's token. This one runs nothing from PyPI.
+  #
+  # zsazsa fetches this file from the latest release to build its deployment
+  # SBOM, so keep the name misp-scraper-<tag>.cdx.xml.
+  sbom-upload:
+    name: attach the SBOM to the release
+    needs: sbom
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom
+
+      - name: Upload it to the release
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "misp-scraper-$TAG.cdx.xml" --clobber --repo "$GITHUB_REPOSITORY"
