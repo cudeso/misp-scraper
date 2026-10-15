@@ -5,10 +5,35 @@
 			"tags": ["admiralty-scale:source-reliability=\"b\""],
 			"url": "https://www.proofpoint.com/us/threat-insight-blog.xml"
 		},
-                {
-                        "title": "Darkreading",
-                        "tags": ["admiralty-scale:source-reliability=\"b\""],
-                        "url": "https://www.darkreading.com/rss.xml"
-                }
+		{
+			"title": "Security.NL",
+			"tags": ["admiralty-scale:source-reliability=\"b\""],
+			"url": "https://www.security.nl/rss/headlines.xml"
+		},
+		{
+			"title": "HackerNews",
+			"tags": ["admiralty-scale:source-reliability=\"b\""],
+			"url": "http://thehackernews.com/feeds/posts/default"
+		},
+		{
+			"title": "Darkreading",
+			"tags": ["admiralty-scale:source-reliability=\"b\""],
+			"url": "https://www.darkreading.com/rss.xml"
+		},
+		{
+			"title": "TAG",
+            "tags": ["admiralty-scale:source-reliability=\"b\""],
+			"url": "https://blog.google/threat-analysis-group/rss/"
+		},
+		{
+			"title": "SentinelOne",
+            "tags": ["admiralty-scale:source-reliability=\"b\""],
+			"url": "https://www.sentinelone.com/feed/"
+		},
+		{
+			"title": "SANS-ISC",
+            "tags": ["admiralty-scale:source-reliability=\"b\""],
+			"url": "https://isc.sans.edu/rssfeed.xml"
+		}
 	]
 }
