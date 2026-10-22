@@ -34,6 +34,14 @@ class MispScraperFeedparser():
         self.feed_list = []
         self.url_list = []
 
+    def _get_entry_date(self, entry) -> str | bool:
+        """ Get the publication date (YYYY-MM-DD) of a feed entry, or False if there is none """
+        for key in ["published_parsed", "updated_parsed"]:
+            parsed = entry.get(key)
+            if parsed:
+                return time.strftime("%Y-%m-%d", parsed)
+        return False
+
     def _get_urls_feed(self, rss_feed, rss_feed_title, rss_feed_tags) -> dict:
         """ Get all the URLs contained in a feed"""
         urls = []
@@ -61,10 +69,8 @@ class MispScraperFeedparser():
                         for entry in rss_feed_content.entries:
                             title = entry.get('title', 'No title')
                             link = entry.get('link', False)
-                            published = entry.get('published', False)
+                            published = self._get_entry_date(entry)
                             if link:
-                                if not published:
-                                    published = "1970-01-01T00:00:00 +0000"
                                 logging.debug("Found URL {} {} {}".format(rss_feed, title, link))
                                 urls.append({"feed_title": rss_feed_title, "feed": rss_feed, "title": title, "link": link, "published": published, "feed_tags": rss_feed_tags})
                 else:
@@ -73,10 +79,8 @@ class MispScraperFeedparser():
                         for entry in rss_feed_content.entries:
                             title = entry.get('title', 'No title')
                             link = entry.get('link', False)
-                            published = entry.get('published', False)
+                            published = self._get_entry_date(entry)
                             if link:
-                                if not published:
-                                    published = "1970-01-01T00:00:00 +0000"
                                 logging.debug("Found URL - despite malformed XML- {} {} {}".format(rss_feed, title, link))
                                 urls.append({"feed_title": rss_feed_title, "feed": rss_feed, "title": title, "link": link, "published": published, "feed_tags": rss_feed_tags})
 
@@ -207,6 +211,7 @@ class MispScraperRedis():
                 title = data.get("title", "")
                 rawhtml = data.get("rawhtml", False)
                 additional_attributes = data.get("additional_attributes", [])
+                published = data.get("published", False)
 
                 if not link and not rawhtml:
                     logging.error("Skipping message from {} without a link or raw HTML".format(feed_title))
@@ -227,7 +232,7 @@ class MispScraperRedis():
                 misp_tag = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed_title)
                 res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
                 if len(res) == 0:
-                    self.misp_scraper_event.create_event(feed_title, feed, title, link, feed_tags, rawhtml, additional_attributes)
+                    self.misp_scraper_event.create_event(feed_title, feed, title, link, feed_tags, rawhtml, additional_attributes, published)
                     time.sleep(self.scraper_redis_sleep)
                 else:
                     logging.debug("Skipping creation of MISP event {}, already there.".format(misp_title))
@@ -460,10 +465,13 @@ class MispScraperEvent():
             
         return primary_data_source
     
-    def create_event(self, feed, feedsource, title, link, feed_tags, rawhtml=False, additional_attributes=[]) -> bool:
+    def create_event(self, feed, feedsource, title, link, feed_tags, rawhtml=False, additional_attributes=[], published=False) -> bool:
         """ Create a MISP event """
         if link:
             event = MISPEvent()
+            # Without a date, MISP uses today
+            if published:
+                event.date = published
             event.distribution = self.misp_distribution
             event.threat_level_id = self.misp_threat_level_id
             event.analysis = self.misp_analysis_level
