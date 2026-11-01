@@ -23,6 +23,24 @@ from urllib.parse import urlparse
 from scraper import *
 
 
+# Dropped from article URLs, as are utm_*. Other query parameters are kept: some sites use them to identify the article.
+TRACKING_PARAMETERS = ["fbclid", "gclid", "msclkid", "mc_cid", "mc_eid", "_hsenc", "_hsmi"]
+
+
+def normalise_url(link) -> str:
+    """ Article URL as stored in the event, so the same article gets the same URL whichever feed brings it in """
+    parsed = urlparse(link)
+    if parsed.scheme not in ["http", "https"] or not parsed.netloc:
+        return link
+
+    query = []
+    for parameter in parsed.query.split("&"):
+        name = parameter.split("=")[0].lower()
+        if parameter and not name.startswith("utm_") and name not in TRACKING_PARAMETERS:
+            query.append(parameter)
+    return parse.urlunparse(("https", parsed.netloc.lower(), parsed.path.rstrip("/") or "/", parsed.params, "&".join(query), ""))
+
+
 class MispScraperFeedparser():
     def __init__(self) -> None:
         config = MispScraperConfig()
@@ -220,6 +238,15 @@ class MispScraperRedis():
                 if not link.startswith(("http://", "https://")):
                     link = "https://{}".format(link)
 
+                # One event per article, whichever feeds bring it in. 
+                manual = feed == self.config.manual_feedsource
+                if not manual:
+                    existing_event = self.misp_scraper_event.find_existing_event(link)
+                    if existing_event:
+                        logging.info("{} from feed {} was already collected in event {}".format(link, feed_title, existing_event))
+                        self.misp_scraper_event.add_data_collection_source(existing_event, feed_title)
+                        continue
+
                 if not title:
                     f = MispScraperFeedparser()
                     if rawhtml:
@@ -227,15 +254,19 @@ class MispScraperRedis():
                     else:
                         title = f.get_page_title(link) or link
 
-                # Avoid adding the event twice
-                misp_title = "{}{}".format(self.config.misp_scraper_event, title).strip()
-                misp_tag = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed_title)
-                res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
-                if len(res) == 0:
-                    self.misp_scraper_event.create_event(feed_title, feed, title, link, feed_tags, rawhtml, additional_attributes, published)
-                    time.sleep(self.scraper_redis_sleep)
-                else:
-                    logging.debug("Skipping creation of MISP event {}, already there.".format(misp_title))
+                # Avoid adding a manual submit twice
+                if manual:
+                    misp_title = "{}{}".format(self.config.misp_scraper_event, title).strip()
+                    misp_tag = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed_title)
+                    res = self.misp_scraper_event.misp.search(eventinfo=misp_title, tags=[misp_tag], pythonify=True)
+                    if isinstance(res, dict) and "errors" in res:
+                        logging.warning("Unable to check if {} was already submitted, creating the event: {}".format(misp_title, res["errors"]))
+                    elif len(res) > 0:
+                        logging.debug("Skipping creation of MISP event {}, already there.".format(misp_title))
+                        continue
+
+                self.misp_scraper_event.create_event(feed_title, feed, title, link, feed_tags, rawhtml, additional_attributes, published)
+                time.sleep(self.scraper_redis_sleep)
             except Exception as e:
                 logging.error("Unable to handle message for link {} {}".format(link, e))
 
@@ -309,6 +340,35 @@ class MispScraperEvent():
         if isinstance(res, dict) and "errors" in res:
             logging.error("Unable to add tag {} to {}: {}".format(tag, uuid, res["errors"]))
 
+    def add_data_collection_source(self, uuid, feed) -> None:
+        """ Tag an event with the feed that reported the article """
+        self._tag(uuid, "{}:data-collection-source:{}".format(self.misp_scraper_tags_prefix, feed), local=True)
+
+    def find_existing_event(self, link) -> str | None:
+        """ UUID of the event the scraper already created for an article. None if there is none, or if we could not check. """
+        # Links without a host, such as "https://" for an empty link, would all match each other
+        if not urlparse(link).hostname:
+            return None
+        if not self.misp_scraper_tags_local:
+            logging.warning("Not checking if {} was already collected, misp_scraper_tags_local is empty".format(link))
+            return None
+
+        # Also the link as received, that is how events from before the normalisation store it
+        try:
+            res = self.misp.search(controller="attributes", type_attribute="link", category="External analysis",
+                                   value=[normalise_url(link), link], tags=self.misp_scraper_tags_local)
+        except Exception as e:
+            res = {"errors": e}
+        if "errors" in res:
+            logging.warning("Unable to check if {} was already collected, creating the event: {}".format(link, res["errors"]))
+            return None
+
+        # The article link, not the feed URL
+        for attribute in res.get("Attribute", []):
+            if attribute.get("comment") == "Blog URL" and "uuid" in attribute.get("Event", {}):
+                return attribute["Event"]["uuid"]
+        return None
+
     def _flag_http_error(self, event, link, status) -> None:
         """ Tag or delete an event for which the article could not be fetched """
         logging.error("Got HTTP {} for {}".format(status, link))
@@ -332,7 +392,7 @@ class MispScraperEvent():
 
         if rawhtml:
             html_report = MISPEventReport()
-            html_report.name = "Report from raw HTML {}".format(link)
+            html_report.name = "Report from raw HTML {}".format(normalise_url(link))
             html_report.content = self._convert_raw_html(rawhtml)
             report = self.misp.add_event_report(str(event.id), html_report)
             if 'EventReport' in report and 'id' in report['EventReport']:
@@ -493,8 +553,7 @@ class MispScraperEvent():
                 for tag in feed_tags:
                     self._tag(event.uuid, tag, local=True)
                     
-                data_source = "{}:data-collection-source:{}".format(misp_scraper_tags_prefix, feed)                
-                self._tag(event.uuid, data_source, local=True)
+                self.add_data_collection_source(event.uuid, feed)
                 
                 if self.add_source_website_as_tag:
                     primary_data_source = self._extract_primary_data_source(link)
@@ -511,7 +570,8 @@ class MispScraperEvent():
                     self._add_attribute(event, "External analysis", "link", "Feed URL", feedsource, True)
                 else:
                     self._add_attribute(event, "Other", "comment", "Feed URL", feedsource)
-                self._add_attribute(event, "External analysis", "link", "Blog URL", link)
+                # Stored normalised, so the next feed with this article finds the event
+                self._add_attribute(event, "External analysis", "link", "Blog URL", normalise_url(link))
 
                 if rawhtml:
                     self._add_attribute(event, "Other", "comment", "Raw HTML", "Submit via raw HTML")
