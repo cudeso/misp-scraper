@@ -17,7 +17,7 @@
 # package was never used (scraper is the local config) and is gone, and
 # nothing else needs setuptools to install or run.
 pymisp>=2.5,<3
-curl_cffi>=0.7,<1       # the chrome124 impersonation target
+curl_cffi>=0.17.0,<1       # the chrome124 impersonation target
 feedparser>=6.0.13,<7   # older ones pull in sgmllib3k, which has no wheel
                         # and needs setuptools to build
 redis>=5.0,<9
