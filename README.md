@@ -58,6 +58,10 @@ Rather than scraping a site you can submit the raw HTML through the Flask web fo
 
 This was the first step towards fetching pages with something other than plain Python requests, see [issue 6](https://github.com/cudeso/misp-scraper/issues/6).
 
+# PDF articles
+
+When a feed links to a PDF, the report contains the text of the PDF. A PDF without text has no report and the event is tagged `misp-scraper:PDF=no-text`. On an existing setup you first have to install `pypdf` in the venv (`pip install -r requirements.txt`).
+
 # Automatically delete scraped attributes
 
 Not everything picked up from a page is worth keeping as a MISP attribute. 'Zone.Identifier' and 'http://google.com/ads/remarketingsetup' are typical examples.

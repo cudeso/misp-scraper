@@ -47,6 +47,8 @@ pycparser==3.11 ; implementation_name != 'PyPy'
     # via cffi
 pymisp==2.5.34.4
     # via -r requirements.in
+pypdf==7.1.0
+    # via -r requirements.in
 python-dateutil==2.9.0.post0
     # via pymisp
 redis==8.1.0
@@ -64,7 +66,9 @@ soupsieve==2.10 ; python_full_version < '3.11.5'
 soupsieve==3.0.3 ; python_full_version >= '3.11.5'
     # via beautifulsoup4
 typing-extensions==4.16.0
-    # via beautifulsoup4
+    # via
+    #   beautifulsoup4
+    #   pypdf
 urllib3==2.8.0
     # via
     #   -r requirements.in

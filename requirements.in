@@ -23,6 +23,8 @@ feedparser>=6.0.13,<7   # older ones pull in sgmllib3k, which has no wheel
 redis>=5.0,<9
 beautifulsoup4>=4.12,<5
 markdownify>=0.12,<2
+pypdf>=6.21.4,<8        # older ones have advisories for crafted PDFs, and the
+                        # scraper reads PDFs from any site
 flask>=3.0,<4
 requests>=2.32,<3       # used directly; below 2.32 is CVE-2024-35195, a
                         # verify=False that sticks to the connection pool

@@ -2,6 +2,7 @@
 __version__ = "1.0.0"
 
 import feedparser
+import io
 import logging
 import os
 import json
@@ -14,6 +15,7 @@ import requests
 from curl_cffi import requests as cf_requests
 from bs4 import BeautifulSoup
 from markdownify import markdownify
+from pypdf import PdfReader
 import html
 import time
 import re
@@ -39,6 +41,12 @@ def normalise_url(link) -> str:
         if parameter and not name.startswith("utm_") and name not in TRACKING_PARAMETERS:
             query.append(parameter)
     return parse.urlunparse(("https", parsed.netloc.lower(), parsed.path.rstrip("/") or "/", parsed.params, "&".join(query), ""))
+
+
+def is_pdf(response) -> bool:
+    """ The fetched article is a PDF, by its Content-Type or, for servers that send another one, by the file itself """
+    content_type = response.headers.get("content-type") or ""
+    return "application/pdf" in content_type.lower() or response.content[:1024].lstrip().startswith(b"%PDF-")
 
 
 class MispScraperFeedparser():
@@ -169,6 +177,10 @@ class MispScraperFeedparser():
         try:
             response = cf_requests.get(url, impersonate="chrome124", timeout=30)
             response.raise_for_status()
+            # Not HTML. The report is made from the PDF when the event is created.
+            if is_pdf(response):
+                logging.debug("{} is a PDF, not passing it as raw HTML".format(url))
+                return False
             return response.text
         except requests.exceptions.Timeout:
             logging.error("Timeout when fetching raw HTML for {}".format(url))
@@ -334,6 +346,15 @@ class MispScraperEvent():
         else:
             return False
 
+    def _convert_pdf(self, pdf, link) -> str:
+        """ Text of a PDF. Empty when it has none, such as a scanned PDF, or cannot be read. """
+        try:
+            pages = [page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages]
+        except Exception as e:
+            logging.error("Unable to read PDF {} {}".format(link, e))
+            return ""
+        return "\n\n".join(page.strip() for page in pages if page.strip())
+
     def _tag(self, uuid, tag, local=False) -> None:
         """ Tag an event and log failures (e.g. missing Tagger / Tag Editor permission) """
         res = self.misp.tag(uuid, tag, local=local)
@@ -378,45 +399,60 @@ class MispScraperEvent():
         else:
             self._tag(event.uuid, "misp-scraper:HTTP={}".format(status))
 
+    def _process_report(self, event, link, report_id, extract_elements) -> bool:
+        """ Check a new report for the required strings, and extract its elements. False if the event was deleted. """
+        required_string_match = self._verify_required_strings(event)
+        if self.autodelete_when_no_required_strings and required_string_match is False:
+            self.misp.delete_event(event.id)
+            logging.debug("Delete event because no required string matches found")
+            return False
+
+        if extract_elements:
+            event_url = "{}/eventReports/extractAllFromReport/{}.json".format(self.misp_url, report_id)
+            data = "data[EventReport][tag_event]=1&data[EventReport][id]={}".format(report_id)
+            requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
+            logging.debug("Scraped and extracted {}".format(link))
+
+        return True
+
+    def _add_report_content(self, event, link, content, source, extract_elements) -> bool:
+        """ Add a report with content the scraper made, from raw HTML or a PDF """
+        misp_report = MISPEventReport()
+        misp_report.name = "Report from {} {}".format(source, normalise_url(link))
+        misp_report.content = content
+        report = self.misp.add_event_report(str(event.id), misp_report)
+        if 'EventReport' in report and 'id' in report['EventReport']:
+            logging.debug("{} added as report".format(source))
+            return self._process_report(event, link, report['EventReport']['id'], extract_elements)
+        logging.error("Unable to add report to event from {}".format(source))
+        return False
+
     def _add_misp_report(self, event, link, extract_elements, rawhtml=False) -> bool:
         """ Add a MISP report to a MISP event """
+        pdf = None
         if not rawhtml and link:
             try:
                 response = cf_requests.get(link, impersonate="chrome124", timeout=30)
                 if not response.ok:
                     self._flag_http_error(event, link, response.status_code)
                     return False
-                rawhtml = response.text
+                if is_pdf(response):
+                    pdf = response.content
+                else:
+                    rawhtml = response.text
             except Exception as e:
                 logging.error("Unable to pre-fetch raw HTML for {} {}".format(link, e))
 
-        if rawhtml:
-            html_report = MISPEventReport()
-            html_report.name = "Report from raw HTML {}".format(normalise_url(link))
-            html_report.content = self._convert_raw_html(rawhtml)
-            report = self.misp.add_event_report(str(event.id), html_report)
-            if 'EventReport' in report and 'id' in report['EventReport']:
-                report_id = report['EventReport']['id']
-                logging.debug("Raw HTML added as report")
-
-                # Before we extra elements, check for required strings
-                required_string_match = self._verify_required_strings(event)
-                if self.autodelete_when_no_required_strings and required_string_match is False:
-                    self.misp.delete_event(event.id)
-                    logging.debug("Delete event because no required string matches found")
-                    return False                
-
-                if extract_elements:
-                    # Extract elements
-                    event_url = "{}/eventReports/extractAllFromReport/{}.json".format(self.misp_url, report_id)
-                    data = "data[EventReport][tag_event]=1&data[EventReport][id]={}".format(report_id)
-                    res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
-                    logging.debug("Scraped and extracted {}".format(link))
-
-                return True
-            else:
-                logging.error("Unable to add report to event from raw HTML")
+        if pdf is not None:
+            text = self._convert_pdf(pdf, link)
+            if not text:
+                logging.warning("No text in PDF {}, not adding a report".format(link))
+                self._tag(event.uuid, "misp-scraper:PDF=no-text")
                 return False
+            return self._add_report_content(event, link, text, "PDF", extract_elements)
+
+        elif rawhtml:
+            return self._add_report_content(event, link, self._convert_raw_html(rawhtml), "raw HTML", extract_elements)
 
         elif link:
             event_url = "{}/eventReports/importReportFromUrl/{}.json".format(self.misp_url, str(event.id))
@@ -430,21 +466,7 @@ class MispScraperEvent():
             else:
                 report_id = int(res.json()["EventReport"]["id"])
                 if report_id > 0:
-                    # Before we extra elements, check for required strings
-                    required_string_match = self._verify_required_strings(event)
-                    if self.autodelete_when_no_required_strings and required_string_match is False:
-                        self.misp.delete_event(event.id)
-                        logging.debug("Delete event because no required string matches found")
-                        return False
-
-                    if extract_elements:
-                        # Extract elements
-                        event_url = "{}/eventReports/extractAllFromReport/{}.json".format(self.misp_url, report_id)
-                        data = "data[EventReport][tag_event]=1&data[EventReport][id]={}".format(report_id)
-                        res = requests.post(event_url, data=data, headers=self.misp_headers, verify=self.misp_verifycert)
-                        logging.debug("Scraped and extracted {}".format(link))
-
-                    return True
+                    return self._process_report(event, link, report_id, extract_elements)
             return False
 
     def _verify_required_strings(self, event) -> bool | None:
@@ -704,6 +726,8 @@ else:
 
 logging.getLogger("pymisp").setLevel(logging.CRITICAL)
 logging.getLogger("urllib3").setLevel(logging.ERROR)
+# Warns about every malformed object in a PDF
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 urllib3.disable_warnings()
 
 app = Flask(__name__)
