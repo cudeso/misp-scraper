@@ -18,7 +18,7 @@ charset-normalizer==3.5.2
     # via requests
 click==8.5.0
     # via flask
-curl-cffi==0.16.3
+curl-cffi==0.17.0
     # via -r requirements.in
 deprecated==1.3.1 ; python_full_version < '3.12'
     # via pymisp
@@ -36,7 +36,7 @@ itsdangerous==2.2.0
     # via flask
 jinja2==3.1.6
     # via flask
-markdownify==1.2.3
+markdownify==1.2.4
     # via -r requirements.in
 markupsafe==3.0.4
     # via
@@ -47,7 +47,7 @@ pycparser==3.11 ; implementation_name != 'PyPy'
     # via cffi
 pymisp==2.5.34.4
     # via -r requirements.in
-pypdf==7.1.0
+pypdf==7.1.1
     # via -r requirements.in
 python-dateutil==2.9.0.post0
     # via pymisp
@@ -58,9 +58,7 @@ requests==2.34.2
     #   -r requirements.in
     #   pymisp
 six==1.17.0
-    # via
-    #   markdownify
-    #   python-dateutil
+    # via python-dateutil
 soupsieve==2.10 ; python_full_version < '3.11.5'
     # via beautifulsoup4
 soupsieve==3.0.3 ; python_full_version >= '3.11.5'

@@ -17,13 +17,13 @@
 # package was never used (scraper is the local config) and is gone, and
 # nothing else needs setuptools to install or run.
 pymisp>=2.5,<3
-curl_cffi>=0.7,<1       # the chrome124 impersonation target
+curl_cffi>=0.17.0,<1       # the chrome124 impersonation target
 feedparser>=6.0.13,<7   # older ones pull in sgmllib3k, which has no wheel
                         # and needs setuptools to build
 redis>=5.0,<9
 beautifulsoup4>=4.12,<5
-markdownify>=0.12,<2
-pypdf>=6.21.4,<8        # older ones have advisories for crafted PDFs, and the
+markdownify>=1.2.4,<2
+pypdf>=7.1.1,<8        # older ones have advisories for crafted PDFs, and the
                         # scraper reads PDFs from any site
 flask>=3.0,<4
 requests>=2.32,<3       # used directly; below 2.32 is CVE-2024-35195, a
